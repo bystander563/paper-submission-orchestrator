@@ -9,6 +9,11 @@ candidate build. The orchestrator freezes the resulting `format-audit.json` at
 review and re-review gates. This table/font contract adds deeper semantic and
 visual checks; it does not duplicate or override the venue profile.
 
+When `layout_rules.log_required` is true, every candidate audit must receive
+`--log <exact-build.log>` and bind its SHA-256. During read-only
+`SUBMISSION_QA`, write a verification audit to a temporary path and compare it
+with the frozen mapped audit; do not overwrite the frozen file.
+
 ## Text and fonts
 
 - Preserve the official class/style file, page geometry, columns, base font,

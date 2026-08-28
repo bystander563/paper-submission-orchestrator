@@ -149,6 +149,9 @@ Gate `G3 REVIEWABLE_ARTIFACT`:
 - page count and anonymization state are known.
 - when enabled, the venue profile and format audit pass and are bound to the
   exact reviewable source/PDF.
+- when the approved packet declares `Main figure plan: REQUIRED`, the
+  hash-bound main-figure manifest validates as at least `PAPER_READY` before
+  `DRAFTING` and remains synchronized with the candidate.
 
 Run an initial table/font preflight here so reviewers do not receive a broken
 or unreadable artifact. This is not the final `TABLE_QA.md` sign-off: later
@@ -192,12 +195,11 @@ Do not reveal other reviewers' reports until each independent report is
 complete. Require exact locations and actionable fixes. Any experiment request
 must use an Experiment Request Card.
 
-The current installed reviewer package may describe sprint-contract assets that
-are not present locally. Run the workflow preflight. If those schema/template/
-validator files are missing, use **five-role compatibility mode**: retain the
-five frozen personas and the review skill's substantive rubrics, but do not
-claim machine-enforced sprint-contract review. Never silently shrink the panel
-to the older four-role editorial template.
+The standard path requires the reviewer sprint schema, full contract, and
+`review_sprint_ctl.py`. Run five paper-blind Phase 1 commitments followed by
+five paper-visible Phase 2 reviews, then require a hash-bound
+`REVIEW_SPRINT_RECEIPT.json`. Missing contract assets or a shrunken panel block
+the round; there is no four-role compatibility fallback.
 
 For the standard panel, write the five reports separately as `EIC.md`, `METHODOLOGY.md`, `DOMAIN.md`,
 `PERSPECTIVE.md`, and `DEVILS_ADVOCATE.md`, plus `EDITORIAL_DECISION.md`. Every
@@ -226,7 +228,8 @@ Gate `G4 REVIEW_COMPLETE`:
   disposition, and the prioritized roadmap.
 
 Entering `TRIAGE` freezes SHA-256 values for the frozen panel and every declared
-report plus `EDITORIAL_DECISION.md`. Later revision may change the manuscript,
+report plus `EDITORIAL_DECISION.md`, `REVIEW_SPRINT_RECEIPT.json`, and any
+required main figure. Later revision may change the manuscript,
 but it must not rewrite the historical review record. Entering `SUBMISSION_QA`
 likewise freezes `RE_REVIEW.md`.
 

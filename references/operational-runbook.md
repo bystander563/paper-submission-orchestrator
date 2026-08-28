@@ -67,10 +67,9 @@ python $workflowCtl validate `
   --state .paper-workflow
 ```
 
-Warnings are not silent passes. In particular, if
-`academic-paper-reviewer` declares sprint-contract files that are absent, use
-the documented five-role compatibility mode and do not claim hard-contract
-enforcement.
+Warnings are not silent passes. The installed `academic-paper-reviewer` must
+include its sprint schema, full contract, `review_sprint_ctl.py`, and tests;
+missing assets are a blocking dependency error for the standard path.
 
 ## 2. Story approval hard gate
 
@@ -96,13 +95,6 @@ python $workflowCtl approve-story `
 The command is an audit record, not a substitute for approval. If the packet is
 edited after approval, validation and drafting transitions fail. Submit the new
 packet and obtain approval again.
-
-After approval:
-
-```powershell
-python $workflowCtl advance `
-  --state .paper-workflow --to DRAFTING
-```
 
 If the approved thesis, contribution hierarchy, non-claims, or main evidence
 interpretation changes, do not edit through the old approval. Run:
@@ -131,6 +123,7 @@ paper_figures/<method>/
   main_figure_preview.png
   main_figure_caption.md
   MAIN_FIGURE_QA.md
+  MAIN_FIGURE_MANIFEST.json
 ```
 
 Record the approved story-packet SHA-256, exact venue placement width,
@@ -139,10 +132,22 @@ and forbidden claims. Inspect the SVG/PDF at the exact physical width plus a
 thumbnail, grayscale view, and color-vision-deficiency view. The vector master,
 not an image-generated bitmap, is the camera-ready source.
 
+Generate `MAIN_FIGURE_MANIFEST.json` with the main-figure skill. It must bind
+the exact approved story packet and all figure artifacts and validate as
+`PAPER_READY`. When no central method figure is planned, the story packet must
+instead declare `- Main figure plan: NOT_PLANNED`.
+
 This step does not require a second routine approval. If the figure proposal
 changes the approved scientific story, stop and run `invalidate-story`. If the
 project has separately declared a visual approval gate, preserve versioned
 candidates and wait for that explicit visual decision before integration.
+
+Only after the required main-figure manifest validates, enter drafting:
+
+```powershell
+python $workflowCtl advance `
+  --state .paper-workflow --to DRAFTING
+```
 
 ## 3. Build a reviewable artifact
 
@@ -160,6 +165,7 @@ python $fontAudit `
 python $formatAudit `
   --profile docs/paper/venue-profile.json --project-root . `
   --tex docs/paper/main.tex --pdf output/pdf/local_build/main.pdf `
+  --log output/pdf/local_build/main.log `
   --strict --output .paper-workflow/format-audit.json
 ```
 
@@ -267,6 +273,18 @@ The full review execution produces:
 
 ```text
 .paper-workflow/reviews/
+  sprint/
+    eic.phase1.md
+    eic.phase2.md
+    methodology.phase1.md
+    methodology.phase2.md
+    domain.phase1.md
+    domain.phase2.md
+    perspective.phase1.md
+    perspective.phase2.md
+    da.phase1.md
+    da.phase2.md
+  REVIEW_SPRINT_RECEIPT.json
   EIC.md
   METHODOLOGY.md
   DOMAIN.md
@@ -274,6 +292,12 @@ The full review execution produces:
   DEVILS_ADVOCATE.md
   EDITORIAL_DECISION.md
 ```
+
+Run all five paper-blind Phase 1 commitments and five paper-visible Phase 2
+reviews, then execute `academic-paper-reviewer/scripts/review_sprint_ctl.py
+validate-panel`. `REVIEW_SPRINT_RECEIPT.json` must declare `status: PASS` and
+bind the contract, exact frozen source, bibliography, PDF, panel card, and all
+ten phase outputs. A prose claim that the review completed is not sufficient.
 
 Each standard report, or each custom roster-declared report, contains:
 
@@ -291,7 +315,8 @@ It also rejects byte-for-byte duplicate reviewer reports as non-independent.
 Required headings and machine-control fields must each occur exactly once;
 duplicate requirement, hash, status, or readiness lines are rejected.
 On successful transition it freezes hashes for the frozen panel, every declared
-reports, and `EDITORIAL_DECISION.md`; subsequent edits invalidate validation.
+report, `EDITORIAL_DECISION.md`, and `REVIEW_SPRINT_RECEIPT.json`; subsequent
+edits invalidate validation.
 
 ## 6. Revision and re-review
 
@@ -326,9 +351,13 @@ SHA-256 values.
 
 ## 7. Final status
 
-`SUBMISSION_QA` is read-only. Re-run the strict TeX table audit, PDF font audit,
-and conference format audit on the exact re-reviewed candidate, then rebuild
-`TABLE_QA.md` for every
+`SUBMISSION_QA` is read-only. Run the strict conference format audit on the
+exact re-reviewed candidate with `--log`, but write its verification result to
+a temporary path outside `.paper-workflow`; compare it byte-for-byte and by
+SHA-256 with the frozen mapped `format-audit.json`. Any difference requires
+`REOPEN_REVISION_REQUIRED`; never overwrite the mapped frozen audit in place.
+Run the strict TeX table audit and PDF font audit at their mapped QA sidecars,
+then rebuild `TABLE_QA.md` for every
 main and appendix table. Its rows record intended width, semantic rule
 hierarchy, column/row alignment, minimum rendered font, visual evidence, and
 every page changed before the frozen re-review candidate. Record audit commands

@@ -14,7 +14,7 @@ from pypdf import PdfWriter
 SCRIPT = Path(__file__).with_name("workflow_ctl.py")
 
 
-def completed_story() -> str:
+def completed_story(main_figure_plan: str = "NOT_PLANNED") -> str:
     headings = (
         "One-sentence thesis",
         "Target venue and paper type",
@@ -31,6 +31,8 @@ def completed_story() -> str:
     blocks = ["# Story Approval Packet", "", "- Packet ID: STORY-TEST", ""]
     for heading in headings:
         blocks.extend((f"## {heading}", "", f"Completed content for {heading}.", ""))
+        if heading == "Main tables and figures":
+            blocks.extend((f"- Main figure plan: {main_figure_plan}", ""))
     return "\n".join(blocks)
 
 
@@ -197,6 +199,7 @@ class WorkflowCtlTests(unittest.TestCase):
                     "supports": ["template", "page_policy", "mode_rules", "pdf"],
                 }
             ],
+            "layout_rules": {"log_required": True},
         }
         profile_path.write_text(json.dumps(profile), encoding="utf-8")
         initialized = self.run_cli(
@@ -280,6 +283,23 @@ class WorkflowCtlTests(unittest.TestCase):
             "- Rendered inspection: PASS; pages=ALL; evidence=format fixture inspected\n",
             encoding="utf-8",
         )
+        missing_log = self.run_cli(
+            "advance", "--state", str(state_dir), "--to", "REVIEWABLE"
+        )
+        self.assertNotEqual(missing_log.returncode, 0)
+        self.assertIn("bound LaTeX log", missing_log.stderr)
+        build_log = root / "paper" / "main.log"
+        build_log.write_text("clean build log\n", encoding="utf-8")
+        old_audit_hash = file_sha256(audit_path)
+        audit["log"] = {"path": str(build_log), "sha256": file_sha256(build_log), "counts": {}}
+        audit_path.write_text(json.dumps(audit), encoding="utf-8")
+        receipt_path = state_dir / "BUILD_RECEIPT.md"
+        receipt_path.write_text(
+            receipt_path.read_text(encoding="utf-8").replace(
+                old_audit_hash, file_sha256(audit_path)
+            ),
+            encoding="utf-8",
+        )
         reviewable = self.run_cli(
             "advance", "--state", str(state_dir), "--to", "REVIEWABLE"
         )
@@ -288,6 +308,14 @@ class WorkflowCtlTests(unittest.TestCase):
         self.assertTrue(state["format_contract"]["enabled"])
 
         (state_dir / "REVIEW_PANEL.md").write_text(completed_panel(), encoding="utf-8")
+        original_log = build_log.read_text(encoding="utf-8")
+        build_log.write_text("mutated build log\n", encoding="utf-8")
+        log_blocked = self.run_cli(
+            "advance", "--state", str(state_dir), "--to", "REVIEWING"
+        )
+        self.assertNotEqual(log_blocked.returncode, 0)
+        self.assertIn("LaTeX log SHA-256", log_blocked.stderr)
+        build_log.write_text(original_log, encoding="utf-8")
         profile["track"] = "short"
         profile_path.write_text(json.dumps(profile), encoding="utf-8")
         blocked = self.run_cli(
@@ -296,9 +324,9 @@ class WorkflowCtlTests(unittest.TestCase):
         self.assertNotEqual(blocked.returncode, 0)
         self.assertIn("venue profile", blocked.stderr.lower())
 
-    def submit_and_approve_story(self) -> None:
+    def submit_and_approve_story(self, main_figure_plan: str = "NOT_PLANNED") -> None:
         packet = self.state_dir / "STORY_APPROVAL_PACKET.md"
-        packet.write_text(completed_story(), encoding="utf-8")
+        packet.write_text(completed_story(main_figure_plan), encoding="utf-8")
         self.assertEqual(
             self.run_cli("submit-story", "--state", str(self.state_dir)).returncode,
             0,
@@ -315,6 +343,29 @@ class WorkflowCtlTests(unittest.TestCase):
             ).returncode,
             0,
         )
+
+    def write_main_figure_manifest(self, verdict: str = "PAPER_READY") -> Path:
+        figure_dir = self.root / "paper" / "main-figure"
+        figure_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = {}
+        for name in ("contract", "facts", "master", "export", "preview", "caption", "qa"):
+            artifact = figure_dir / f"{name}.dat"
+            if not artifact.exists():
+                artifact.write_text(f"verified {name}\n", encoding="utf-8")
+            artifacts[name] = {"path": str(artifact.resolve()), "sha256": file_sha256(artifact)}
+        story = self.state_dir / "STORY_APPROVAL_PACKET.md"
+        manifest = {
+            "schema_version": 1,
+            "status": "PASS",
+            "verdict": verdict,
+            "story_packet": {"path": str(story.resolve()), "sha256": file_sha256(story)},
+            "placement_width_mm": 160,
+            "artifacts": artifacts,
+            "accessibility": {"alt_text_status": "VENUE_NOT_REQUIRED"},
+        }
+        output = self.state_dir / "MAIN_FIGURE_MANIFEST.json"
+        output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        return output
 
     def write_build_receipt(self) -> None:
         source = self.root / "paper" / "main.md"
@@ -406,6 +457,42 @@ class WorkflowCtlTests(unittest.TestCase):
             "## Experiment request summary\n\nSee individual reports; NONE unless listed.\n",
             encoding="utf-8",
         )
+        sprint = reviews / "sprint"
+        sprint.mkdir(exist_ok=True)
+        sprint_hashes = {}
+        for role in ("eic", "methodology", "domain", "perspective", "da"):
+            for phase in (1, 2):
+                artifact = sprint / f"{role}.phase{phase}.md"
+                artifact.write_text(
+                    f"validated fixture for {role} phase {phase}\n", encoding="utf-8"
+                )
+                sprint_hashes[artifact.name] = file_sha256(artifact)
+        source = self.root / "paper" / "main.md"
+        bibliography = self.root / "paper" / "refs.bib"
+        pdf = self.root / "paper" / "main.pdf"
+        panel = self.state_dir / "REVIEW_PANEL.md"
+        receipt = {
+            "schema_version": 1,
+            "status": "PASS",
+            "contract_id": "reviewer/reviewer_full/v2",
+            "mode": "reviewer_full",
+            "panel_size": 5,
+            "roles": ["eic", "methodology", "domain", "perspective", "da"],
+            "panel_dir": str(sprint.resolve()),
+            "contract_sha256": "0" * 64,
+            "bound_artifacts": {
+                "source": {"path": str(source), "sha256": file_sha256(source)},
+                "bibliography": {"path": str(bibliography), "sha256": file_sha256(bibliography)},
+                "pdf": {"path": str(pdf), "sha256": file_sha256(pdf)},
+                "panel_card": {"path": str(panel), "sha256": file_sha256(panel)},
+            },
+            "review_artifact_sha256": sprint_hashes,
+            "global_failure_conditions": [],
+            "editorial_decision": "editorial_decision=minor_revision",
+        }
+        (reviews / "REVIEW_SPRINT_RECEIPT.json").write_text(
+            json.dumps(receipt, indent=2) + "\n", encoding="utf-8"
+        )
 
     def write_revision_ledger(self) -> None:
         (self.state_dir / "REVISION_LEDGER.md").write_text(
@@ -471,6 +558,78 @@ class WorkflowCtlTests(unittest.TestCase):
         self.write_rereview_report(snapshot)
         result = self.run_cli("advance", "--state", str(self.state_dir), "--to", "SUBMISSION_QA")
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_required_main_figure_blocks_drafting_until_paper_ready(self) -> None:
+        self.submit_and_approve_story("REQUIRED")
+        missing = self.run_cli("advance", "--state", str(self.state_dir), "--to", "DRAFTING")
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("main-figure manifest", missing.stderr)
+        self.write_main_figure_manifest("DRAFT_ONLY")
+        draft_only = self.run_cli("advance", "--state", str(self.state_dir), "--to", "DRAFTING")
+        self.assertNotEqual(draft_only.returncode, 0)
+        self.assertIn("below required PAPER_READY", draft_only.stderr)
+        self.write_main_figure_manifest("PAPER_READY")
+        accepted = self.run_cli("advance", "--state", str(self.state_dir), "--to", "DRAFTING")
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_review_freeze_detects_main_figure_mutation(self) -> None:
+        self.submit_and_approve_story("REQUIRED")
+        self.write_main_figure_manifest("PAPER_READY")
+        self.advance_to_reviewable()
+        (self.state_dir / "REVIEW_PANEL.md").write_text(completed_panel(), encoding="utf-8")
+        reviewing = self.run_cli("advance", "--state", str(self.state_dir), "--to", "REVIEWING")
+        self.assertEqual(reviewing.returncode, 0, reviewing.stderr)
+        state = json.loads((self.state_dir / "state.json").read_text(encoding="utf-8"))
+        self.write_review_outputs(state["review_snapshot"])
+        master = self.root / "paper" / "main-figure" / "master.dat"
+        master.write_text("post-freeze mutation\n", encoding="utf-8")
+        blocked = self.run_cli("advance", "--state", str(self.state_dir), "--to", "TRIAGE")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("main-figure master hash mismatch", blocked.stderr)
+
+    def test_required_main_figure_must_be_camera_ready_before_rereview(self) -> None:
+        self.submit_and_approve_story("REQUIRED")
+        self.write_main_figure_manifest("PAPER_READY")
+        self.advance_to_reviewable()
+        (self.state_dir / "REVIEW_PANEL.md").write_text(completed_panel(), encoding="utf-8")
+        reviewing = self.run_cli("advance", "--state", str(self.state_dir), "--to", "REVIEWING")
+        self.assertEqual(reviewing.returncode, 0, reviewing.stderr)
+        state = json.loads((self.state_dir / "state.json").read_text(encoding="utf-8"))
+        self.write_review_outputs(state["review_snapshot"])
+        triage = self.run_cli("advance", "--state", str(self.state_dir), "--to", "TRIAGE")
+        self.assertEqual(triage.returncode, 0, triage.stderr)
+        self.write_revision_ledger()
+        revising = self.run_cli("advance", "--state", str(self.state_dir), "--to", "REVISING")
+        self.assertEqual(revising.returncode, 0, revising.stderr)
+        source = self.root / "paper" / "main.md"
+        source.write_text("# Paper\n\nRevised candidate.\n", encoding="utf-8")
+        write_minimal_pdf(self.root / "paper" / "main.pdf", "revised required-figure candidate")
+        self.write_build_receipt()
+        paper_ready = self.run_cli("advance", "--state", str(self.state_dir), "--to", "RE_REVIEW")
+        self.assertNotEqual(paper_ready.returncode, 0)
+        self.assertIn("below required CAMERA_READY", paper_ready.stderr)
+        master = self.root / "paper" / "main-figure" / "master.dat"
+        master.write_text("camera-ready vector\n", encoding="utf-8")
+        self.write_main_figure_manifest("CAMERA_READY")
+        camera_ready = self.run_cli("advance", "--state", str(self.state_dir), "--to", "RE_REVIEW")
+        self.assertEqual(camera_ready.returncode, 0, camera_ready.stderr)
+
+    def test_standard_review_requires_executable_sprint_receipt(self) -> None:
+        snapshot = self.advance_to_reviewing()
+        self.write_review_outputs(snapshot)
+        (self.state_dir / "reviews" / "REVIEW_SPRINT_RECEIPT.json").unlink()
+        blocked = self.run_cli("advance", "--state", str(self.state_dir), "--to", "TRIAGE")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("review sprint receipt is missing", blocked.stderr)
+
+    def test_tampered_sprint_phase_artifact_blocks_triage(self) -> None:
+        snapshot = self.advance_to_reviewing()
+        self.write_review_outputs(snapshot)
+        phase = self.state_dir / "reviews" / "sprint" / "da.phase2.md"
+        phase.write_text("tampered after receipt\n", encoding="utf-8")
+        blocked = self.run_cli("advance", "--state", str(self.state_dir), "--to", "TRIAGE")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("phase artifact is missing or changed", blocked.stderr)
 
     def test_story_gate_blocks_drafting_until_explicit_approval(self) -> None:
         blocked = self.run_cli(

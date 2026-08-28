@@ -72,7 +72,9 @@ metrics, dataset roles, or scientific terminology.
 
 Produce an editable vector master, vector PDF/SVG export, placement-size PNG
 preview, caption, alt text, grayscale and color-vision-deficiency checks, and
-MAIN_FIGURE_QA.md with exact hashes. Use the venue's physical placement width;
+MAIN_FIGURE_QA.md with exact hashes. Use `main_figure_manifest.py create` to
+write MAIN_FIGURE_MANIFEST.json bound to the exact approved story packet and
+all deliverables, then validate it at the required verdict. Use the venue's physical placement width;
 calculate font size at that width. Keep dense UI modules aligned, whitespace
 intentional, and connectors short, neutral, and visually weaker than module
 borders. Ordinary arrows are straight or use at most one right-angle elbow.
@@ -130,9 +132,11 @@ For `STANDARD_FIVE_ROLE`, write exactly five independent reports to [reviews/EIC
 [reviews/METHODOLOGY.md], [reviews/DOMAIN.md], [reviews/PERSPECTIVE.md], and
 [reviews/DEVILS_ADVOCATE.md], plus [reviews/EDITORIAL_DECISION.md]. Every report
 must contain the exact source, bibliography, and PDF SHA-256 and `Experiment requirement:
-NONE` or the relevant EXP-REQ IDs. If the reviewer's declared sprint-contract
-assets are absent, state `REVIEWER_COMPATIBILITY_MODE`; preserve all five roles
-but do not claim machine-enforced sprint-contract execution.
+NONE` or the relevant EXP-REQ IDs. Run the exact full sprint contract as five
+paper-blind Phase 1 calls and five paper-visible Phase 2 calls. Then execute
+`review_sprint_ctl.py validate-panel` and write the PASS receipt to
+[reviews/REVIEW_SPRINT_RECEIPT.json]. Missing assets, any unusable reviewer,
+or any failed lint blocks the standard review; do not use compatibility mode.
 
 For `CUSTOM`, write exactly the reviewer files declared by the approved
 `Required report files` table, plus the editorial decision; do not create or
@@ -231,9 +235,13 @@ revision ticket is pending or lacks verification.
 Load $paper-compile-layout-qa. Audit the exact submission candidate [source
 revision and PDF] against the current official [venue/year/track/mode]
 rules/template. Consume the workflow-mapped [venue-profile.json], verify its
-official-source provenance and template hashes, then regenerate the mapped
-[format-audit.json] with `conference_format_audit.py --strict` for this exact
-source/PDF. Compile from the repository-native root, verify source/PDF
+official-source provenance and template hashes, then run
+`conference_format_audit.py --strict --log [exact build log]` for this exact
+source and PDF with a temporary output path outside the workflow directory.
+Compare that output byte-for-byte and by SHA-256 with the already frozen mapped
+[format-audit.json]. Do not regenerate or overwrite the mapped audit during
+read-only QA; any difference returns `REOPEN_REVISION_REQUIRED`. Compile from
+the repository-native root, verify source/PDF
 synchronization, page limits, anonymity, fonts, figures/tables, citations and
 bibliography, cross-references, build logs, rendered-page readability,
 ethics/limitations, data/code statements, and all author-supplied metadata

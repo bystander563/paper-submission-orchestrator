@@ -42,6 +42,8 @@ Problem -> gap -> mechanism -> evidence -> boundary.
 
 ## Main tables and figures
 
+- Main figure plan: REQUIRED | NOT_PLANNED
+
 ## Main-text and appendix allocation
 
 ## Remaining paper-level decisions
@@ -96,7 +98,10 @@ story approval.
 ## QA record path
 ```
 
-The QA record binds the vector master and export hashes and reports one of
+`MAIN_FIGURE_MANIFEST.json` is the machine-readable handoff. It binds the
+approved story packet plus contract, facts, editable master, vector export,
+preview, caption, QA record, accessibility decision, and physical placement
+width by SHA-256. The QA record and manifest report one of
 `DRAFT_ONLY`, `PAPER_READY`, or `CAMERA_READY`. `CAMERA_READY` requires the
 exact manuscript placement size, editable text and shapes, embedded valid
 fonts, no unsupported scientific element, no clipped label, accessible color
@@ -105,6 +110,10 @@ semantics, and a rendered inspection of the export used by the manuscript.
 The figure contract becomes stale if the approved story packet changes. A
 post-review change to the vector, caption, or placement is a candidate change:
 rebuild and re-review before final package QA.
+
+`PAPER_READY` is a hard prerequisite for entering `DRAFTING` when the plan is
+`REQUIRED`. `CAMERA_READY` is a hard prerequisite for freezing `RE_REVIEW` and
+for `SUBMISSION_READY`. `NOT_PLANNED` is the only no-manifest path.
 
 ## Reviewer Configuration Card
 
@@ -167,6 +176,11 @@ The custom card additionally contains:
 Every role in this table has a matching `##` section with `Persona and
 expertise` and `Responsibility ID`. Filenames are safe Markdown basenames.
 Every declared report is mandatory, and undeclared review files are rejected.
+
+For `STANDARD_FIVE_ROLE`, `reviews/REVIEW_SPRINT_RECEIPT.json` is also
+mandatory. It records `status: PASS`, the exact five roles, frozen contract and
+candidate hashes, all ten Phase 1 and Phase 2 artifact hashes, evaluated
+failure conditions, and the deterministic editorial decision.
 
 The standard responsibility IDs mean:
 

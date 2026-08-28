@@ -43,6 +43,7 @@ Use these files by purpose:
 | Create the story-bound main method figure | `$paper-main-figure` and [references/artifact-contracts.md](references/artifact-contracts.md) |
 | Delegate a bounded role | [references/agent-prompts.md](references/agent-prompts.md) |
 | Create or validate an artifact | [references/artifact-contracts.md](references/artifact-contracts.md) |
+| Resolve cross-skill rule ownership | [references/rule-ownership.md](references/rule-ownership.md) |
 | Audit wording and field terminology | [references/writing-and-terminology.md](references/writing-and-terminology.md) |
 | Audit conference tables, fonts, and rendered layout | [references/conference-format-qa.md](references/conference-format-qa.md) |
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STATE_FILE = "state.json"
 LATEX_SOURCE_SUFFIXES = {".tex", ".ltx"}
 
@@ -87,6 +87,12 @@ REQUIRED_STORY_SECTIONS = (
     "Remaining paper-level decisions",
     "Agent recommendation",
 )
+
+MAIN_FIGURE_PLANS = {"REQUIRED", "NOT_PLANNED"}
+MAIN_FIGURE_VERDICT_RANK = {"DRAFT_ONLY": 0, "PAPER_READY": 1, "CAMERA_READY": 2}
+MAIN_FIGURE_ARTIFACTS = {
+    "contract", "facts", "master", "export", "preview", "caption", "qa"
+}
 
 REQUIRED_PANEL_SECTIONS = (
     "Editor-in-Chief",
@@ -228,6 +234,8 @@ Problem -> gap -> mechanism -> evidence -> boundary.
 ## Main tables and figures
 
 [TBD]
+
+- Main figure plan: REQUIRED | NOT_PLANNED
 
 ## Main-text and appendix allocation
 
@@ -473,6 +481,15 @@ def format_contract_errors(state: dict[str, Any]) -> list[str]:
             errors.append(f"venue-format contract {label} is missing: {artifact}")
         elif str(audit_value_hash or "").lower() != sha256(artifact).lower():
             errors.append(f"conference format audit does not bind the exact {label} SHA-256")
+    layout_rules = profile.get("layout_rules") if isinstance(profile.get("layout_rules"), dict) else {}
+    if layout_rules.get("log_required"):
+        log_entry = audit.get("log") if isinstance(audit.get("log"), dict) else {}
+        log_path_value = log_entry.get("path")
+        log_path = Path(str(log_path_value)).expanduser().resolve() if log_path_value else None
+        if log_path is None or not log_path.is_file():
+            errors.append("venue profile requires a bound LaTeX log, but format audit log is missing")
+        elif str(log_entry.get("sha256", "")).lower() != sha256(log_path):
+            errors.append("conference format audit does not bind the exact LaTeX log SHA-256")
     return errors
 
 
@@ -481,7 +498,7 @@ def format_snapshot_errors(
 ) -> list[str]:
     if not format_contract_enabled(state):
         return []
-    errors: list[str] = []
+    errors: list[str] = format_contract_errors(state)
     for artifact_key, snapshot_key, artifact_label in (
         ("venue_profile", "venue_profile_sha256", "venue profile"),
         ("format_audit", "format_audit_sha256", "conference format audit"),
@@ -491,6 +508,113 @@ def format_snapshot_errors(
             errors.append(f"{label} {artifact_label} is missing: {artifact}")
         elif sha256(artifact) != snapshot.get(snapshot_key):
             errors.append(f"{artifact_label} changed after the {label} snapshot was frozen")
+    return errors
+
+
+def main_figure_plan(state: dict[str, Any]) -> str | None:
+    packet = resolve_artifact(state, state["artifacts"]["story_packet"])
+    if not packet.is_file():
+        return None
+    values = re.findall(
+        r"^-\s*Main figure plan:\s*([A-Z_]+)\s*$",
+        packet.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    return values[0] if len(values) == 1 and values[0] in MAIN_FIGURE_PLANS else None
+
+
+def _manifest_bound_file_errors(entry: Any, label: str) -> list[str]:
+    if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
+        return [f"main-figure {label} must contain exactly path and sha256"]
+    path = Path(str(entry.get("path", ""))).expanduser().resolve()
+    if not path.is_file():
+        return [f"main-figure {label} is missing: {path}"]
+    if sha256(path).lower() != str(entry.get("sha256", "")).lower():
+        return [f"main-figure {label} hash mismatch"]
+    return []
+
+
+def main_figure_manifest_errors(
+    state: dict[str, Any], required_verdict: str = "PAPER_READY"
+) -> list[str]:
+    plan = main_figure_plan(state)
+    if plan is None:
+        return ["story packet must declare exactly one Main figure plan: REQUIRED or NOT_PLANNED"]
+    if plan == "NOT_PLANNED":
+        return []
+    manifest_value = state.get("artifacts", {}).get("main_figure_manifest", "")
+    if not manifest_value:
+        return ["REQUIRED main figure lacks a main_figure_manifest mapping"]
+    manifest_path = resolve_artifact(state, manifest_value)
+    manifest, errors = load_json_object(manifest_path, "main-figure manifest")
+    if manifest is None:
+        return errors
+    required_top = {
+        "schema_version", "status", "verdict", "story_packet",
+        "placement_width_mm", "artifacts", "accessibility",
+    }
+    if set(manifest) != required_top:
+        errors.append("main-figure manifest has unexpected or missing top-level fields")
+    if manifest.get("schema_version") != 1 or manifest.get("status") != "PASS":
+        errors.append("main-figure manifest must declare schema_version=1 and status=PASS")
+    verdict = manifest.get("verdict")
+    if verdict not in MAIN_FIGURE_VERDICT_RANK:
+        errors.append(f"main-figure manifest has invalid verdict: {verdict}")
+    elif MAIN_FIGURE_VERDICT_RANK[verdict] < MAIN_FIGURE_VERDICT_RANK[required_verdict]:
+        errors.append(f"main-figure verdict {verdict} is below required {required_verdict}")
+    width = manifest.get("placement_width_mm")
+    if not isinstance(width, (int, float)) or width <= 0:
+        errors.append("main-figure placement_width_mm must be positive")
+    story_entry = manifest.get("story_packet")
+    errors.extend(_manifest_bound_file_errors(story_entry, "story_packet"))
+    packet = resolve_artifact(state, state["artifacts"]["story_packet"])
+    if isinstance(story_entry, dict):
+        bound_story = Path(str(story_entry.get("path", ""))).expanduser().resolve()
+        if bound_story != packet.resolve():
+            errors.append("main-figure manifest is bound to a different story packet path")
+        elif packet.is_file() and str(story_entry.get("sha256", "")).lower() != sha256(packet):
+            errors.append("main-figure manifest is stale for the approved story packet")
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != MAIN_FIGURE_ARTIFACTS:
+        errors.append(
+            "main-figure artifacts must be exactly contract, facts, master, export, "
+            "preview, caption, and qa"
+        )
+    else:
+        for name in sorted(MAIN_FIGURE_ARTIFACTS):
+            errors.extend(_manifest_bound_file_errors(artifacts[name], name))
+    accessibility = manifest.get("accessibility")
+    if isinstance(accessibility, dict) and set(accessibility) == {"alt_text"}:
+        errors.extend(_manifest_bound_file_errors(accessibility["alt_text"], "alt_text"))
+    elif accessibility != {"alt_text_status": "VENUE_NOT_REQUIRED"}:
+        errors.append("main-figure accessibility must bind alt_text or declare VENUE_NOT_REQUIRED")
+    return errors
+
+
+def main_figure_snapshot_hashes(state: dict[str, Any]) -> dict[str, Any]:
+    if main_figure_plan(state) != "REQUIRED":
+        return {}
+    manifest = resolve_artifact(state, state["artifacts"]["main_figure_manifest"])
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    hashes = {name: item["sha256"] for name, item in value["artifacts"].items()}
+    if "alt_text" in value["accessibility"]:
+        hashes["alt_text"] = value["accessibility"]["alt_text"]["sha256"]
+    return {
+        "main_figure_manifest_sha256": sha256(manifest),
+        "main_figure_verdict": value["verdict"],
+        "main_figure_artifact_sha256": hashes,
+    }
+
+
+def main_figure_snapshot_errors(
+    state: dict[str, Any], snapshot: dict[str, Any], label: str
+) -> list[str]:
+    if main_figure_plan(state) != "REQUIRED":
+        return []
+    errors = main_figure_manifest_errors(state, "PAPER_READY")
+    manifest = resolve_artifact(state, state["artifacts"].get("main_figure_manifest", ""))
+    if manifest.is_file() and sha256(manifest) != snapshot.get("main_figure_manifest_sha256"):
+        errors.append(f"main-figure manifest changed after the {label} snapshot was frozen")
     return errors
 
 
@@ -948,6 +1072,14 @@ def validate_packet(path: Path, required: tuple[str, ...]) -> list[str]:
         )
         if len(packet_ids) != 1:
             errors.append(f"story packet must contain exactly one safe Packet ID: {path}")
+        plans = re.findall(
+            r"^-\s*Main figure plan:\s*([A-Z_]+)\s*$", text, re.MULTILINE
+        )
+        if len(plans) != 1 or plans[0] not in MAIN_FIGURE_PLANS:
+            errors.append(
+                f"story packet must declare exactly one '- Main figure plan: REQUIRED' "
+                f"or '- Main figure plan: NOT_PLANNED': {path}"
+            )
     for heading in required:
         occurrences = re.findall(rf"^##\s+{re.escape(heading)}\s*$", text, re.MULTILINE)
         if len(occurrences) != 1:
@@ -1199,7 +1331,7 @@ def freeze_review_snapshot(
         "build_receipt_sha256": sha256(build_receipt),
         "submission_dependency_hashes": dependency_hashes(state),
         "panel_sha256": sha256(panel),
-    } | format_contract_hashes(state)
+    } | format_contract_hashes(state) | main_figure_snapshot_hashes(state)
 
 
 def validate_human_approver(value: str) -> str:
@@ -1264,6 +1396,7 @@ def pending_review_panel_errors(state: dict[str, Any]) -> list[str]:
     errors.extend(dependency_snapshot_errors(state, pending, "pending review-panel"))
     errors.extend(build_receipt_errors(state))
     errors.extend(format_snapshot_errors(state, pending, "pending review-panel"))
+    errors.extend(main_figure_snapshot_errors(state, pending, "pending review-panel"))
     errors.extend(format_contract_errors(state))
     return errors
 
@@ -1288,6 +1421,7 @@ def review_snapshot_errors(state: dict[str, Any]) -> list[str]:
         errors.append("build receipt changed after the review snapshot was frozen")
     errors.extend(dependency_snapshot_errors(state, snapshot, "review"))
     errors.extend(format_snapshot_errors(state, snapshot, "review"))
+    errors.extend(main_figure_snapshot_errors(state, snapshot, "review"))
     return errors
 
 
@@ -1345,6 +1479,7 @@ def rereview_snapshot_errors(state: dict[str, Any]) -> list[str]:
             errors.append(f"{label} changed after the re-review snapshot was frozen")
     errors.extend(dependency_snapshot_errors(state, snapshot, "re-review"))
     errors.extend(format_snapshot_errors(state, snapshot, "re-review"))
+    errors.extend(main_figure_snapshot_errors(state, snapshot, "re-review"))
     return errors
 
 
@@ -1436,6 +1571,60 @@ def review_output_errors(state: dict[str, Any]) -> list[str]:
                 f"{report_hashes[digest]} and {report}"
             )
         report_hashes[digest] = str(report)
+    if review_panel_type(panel) == "STANDARD_FIVE_ROLE":
+        receipt_value = state.get("artifacts", {}).get("review_sprint_receipt", "")
+        receipt_path = resolve_artifact(state, receipt_value) if receipt_value else None
+        receipt, receipt_errors = load_json_object(
+            receipt_path if receipt_path is not None else reviews_dir / "REVIEW_SPRINT_RECEIPT.json",
+            "review sprint receipt",
+        )
+        errors.extend(receipt_errors)
+        if receipt is not None:
+            if receipt.get("status") != "PASS" or receipt.get("mode") != "reviewer_full":
+                errors.append(
+                    "standard review sprint receipt must declare status=PASS and mode=reviewer_full"
+                )
+            expected_roles = ["eic", "methodology", "domain", "perspective", "da"]
+            if receipt.get("panel_size") != 5 or receipt.get("roles") != expected_roles:
+                errors.append("standard review sprint receipt must bind the exact five-role panel")
+            bound = (
+                receipt.get("bound_artifacts")
+                if isinstance(receipt.get("bound_artifacts"), dict)
+                else {}
+            )
+            for label, artifact, key in (
+                ("source", resolve_artifact(state, state["artifacts"]["canonical_source"]), "source"),
+                ("bibliography", resolve_artifact(state, state["artifacts"]["bibliography"]), "bibliography"),
+                ("PDF", resolve_artifact(state, state["artifacts"]["rendered_pdf"]), "pdf"),
+                ("panel card", panel, "panel_card"),
+            ):
+                entry = bound.get(key)
+                if not isinstance(entry, dict) or str(entry.get("sha256", "")).lower() != sha256(artifact):
+                    errors.append(f"review sprint receipt does not bind the exact {label} SHA-256")
+            review_hashes = receipt.get("review_artifact_sha256")
+            expected_names = {
+                f"{role}.phase{phase}.md"
+                for role in expected_roles
+                for phase in (1, 2)
+            }
+            if not isinstance(review_hashes, dict) or set(review_hashes) != expected_names:
+                errors.append("review sprint receipt must bind all ten phase artifacts")
+            else:
+                panel_dir_value = receipt.get("panel_dir")
+                panel_dir = (
+                    Path(str(panel_dir_value)).expanduser().resolve()
+                    if panel_dir_value
+                    else None
+                )
+                if panel_dir is None or not panel_dir.is_dir():
+                    errors.append("review sprint receipt lacks an existing panel_dir")
+                else:
+                    for name, expected_hash in review_hashes.items():
+                        phase_path = panel_dir / name
+                        if not phase_path.is_file() or sha256(phase_path) != expected_hash:
+                            errors.append(
+                                f"review sprint phase artifact is missing or changed: {phase_path}"
+                            )
     snapshot = state.get("review_snapshot") or {}
     source_hash = snapshot.get("canonical_source_sha256", "")
     bibliography_hash = snapshot.get("bibliography_sha256", "")
@@ -1982,9 +2171,11 @@ def dependency_findings(codex_home: Path | None) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     reviewer = skills / "academic-paper-reviewer"
     compiler = skills / "paper-compile-layout-qa"
+    figure = skills / "paper-main-figure"
     for name, folder in (
         ("academic-paper-reviewer", reviewer),
         ("paper-compile-layout-qa", compiler),
+        ("paper-main-figure", figure),
     ):
         if not (folder / "SKILL.md").is_file():
             errors.append(f"required skill is not installed: {name}")
@@ -1993,14 +2184,16 @@ def dependency_findings(codex_home: Path | None) -> tuple[list[str], list[str]]:
         reviewer / "shared" / "contracts" / "reviewer" / "full.json",
         reviewer / "shared" / "contracts" / "reviewer" / "methodology_focus.json",
         reviewer / "scripts" / "check_sprint_contract.py",
+        reviewer / "scripts" / "review_sprint_ctl.py",
     )
     missing = [str(path) for path in hard_contract_assets if not path.is_file()]
     if reviewer.is_dir() and missing:
-        warnings.append(
+        errors.append(
             "academic-paper-reviewer sprint-contract assets are incomplete; "
-            "use five-role compatibility mode and do not claim machine-enforced "
-            "sprint-contract review. Missing: " + "; ".join(missing)
+            "standard review cannot run. Missing: " + "; ".join(missing)
         )
+    if figure.is_dir() and not (figure / "scripts" / "main_figure_manifest.py").is_file():
+        errors.append("paper-main-figure manifest validator is missing")
     return errors, warnings
 
 
@@ -2028,6 +2221,17 @@ def full_validation(state: dict[str, Any], codex_home: Path | None) -> dict[str,
     errors.extend(review_reports_integrity_errors(state))
     errors.extend(rereview_snapshot_errors(state))
     errors.extend(rereview_report_integrity_errors(state))
+    if state.get("stage") in POST_STORY_STAGES and state.get("stage") != "REVISING":
+        errors.extend(
+            main_figure_manifest_errors(
+                state,
+                (
+                    "CAMERA_READY"
+                    if state.get("stage") in POST_REREVIEW_SNAPSHOT_STAGES
+                    else "PAPER_READY"
+                ),
+            )
+        )
     dep_errors, dep_warnings = dependency_findings(codex_home)
     errors.extend(dep_errors)
     warnings.extend(dep_warnings)
@@ -2134,6 +2338,14 @@ def command_init(args: argparse.Namespace) -> int:
         ),
         "story_packet": portable_path(workflow_dir / "STORY_APPROVAL_PACKET.md", root),
         "review_panel": portable_path(workflow_dir / "REVIEW_PANEL.md", root),
+        "review_sprint_receipt": portable_path(
+            workflow_dir / "reviews" / "REVIEW_SPRINT_RECEIPT.json", root
+        ),
+        "main_figure_manifest": (
+            portable_path(resolve_input_path(args.main_figure_manifest, root), root)
+            if args.main_figure_manifest
+            else portable_path(workflow_dir / "MAIN_FIGURE_MANIFEST.json", root)
+        ),
         "claim_evidence_matrix": portable_path(workflow_dir / "CLAIM_EVIDENCE_MATRIX.md", root),
         "terminology_ledger": portable_path(workflow_dir / "TERMINOLOGY_LEDGER.md", root),
         "experiment_requests": portable_path(workflow_dir / "EXPERIMENT_REQUESTS.md", root),
@@ -2276,6 +2488,7 @@ def command_invalidate_story(args: argparse.Namespace) -> int:
         "tex_table_audit.json",
         "pdf_font_audit.json",
         "format-audit.json",
+        "MAIN_FIGURE_MANIFEST.json",
     ):
         artifact = workflow_dir / name
         if artifact.is_file():
@@ -2296,7 +2509,12 @@ def command_invalidate_story(args: argparse.Namespace) -> int:
     (workflow_dir / "SUBMISSION_READINESS.md").write_text(
         READINESS_TEMPLATE, encoding="utf-8"
     )
-    for name in ("tex_table_audit.json", "pdf_font_audit.json", "format-audit.json"):
+    for name in (
+        "tex_table_audit.json",
+        "pdf_font_audit.json",
+        "format-audit.json",
+        "MAIN_FIGURE_MANIFEST.json",
+    ):
         active_audit = workflow_dir / name
         if active_audit.is_file():
             active_audit.unlink()
@@ -2346,6 +2564,10 @@ def command_advance(args: argparse.Namespace) -> int:
     )
     if snapshot_errors:
         raise ValueError("; ".join(snapshot_errors))
+    if target == "DRAFTING":
+        errors = main_figure_manifest_errors(state, "PAPER_READY")
+        if errors:
+            raise ValueError("; ".join(errors))
     if target == "REVIEWABLE":
         for key in ("canonical_source", "bibliography", "rendered_pdf"):
             value = state["artifacts"].get(key, "")
@@ -2383,7 +2605,7 @@ def command_advance(args: argparse.Namespace) -> int:
             "proposed_build_receipt_sha256": sha256(build_receipt),
             "submission_dependency_hashes": dependency_hashes(state),
             "submitted_at": utc_now(),
-        } | format_contract_hashes(state)
+        } | format_contract_hashes(state) | main_figure_snapshot_hashes(state)
     if target == "REVIEWING":
         panel = resolve_artifact(state, state["artifacts"]["review_panel"])
         errors = (
@@ -2419,6 +2641,9 @@ def command_advance(args: argparse.Namespace) -> int:
             name: sha256(reviews_dir / name)
             for name in tuple(filename for _, filename in specs) + ("EDITORIAL_DECISION.md",)
         }
+        if review_panel_type(panel) == "STANDARD_FIVE_ROLE":
+            receipt = resolve_artifact(state, state["artifacts"]["review_sprint_receipt"])
+            state["review_reports_snapshot"][receipt.name] = sha256(receipt)
     if target == "REVISING":
         ledger = resolve_artifact(state, state["artifacts"]["revision_ledger"])
         errors = revision_ledger_errors(ledger, requested_revision_ids(state))
@@ -2440,7 +2665,11 @@ def command_advance(args: argparse.Namespace) -> int:
         pdf = resolve_artifact(state, state["artifacts"]["rendered_pdf"])
         if not source.is_file() or not bibliography.is_file() or not pdf.is_file():
             raise ValueError("re-review requires final source, bibliography, and rendered PDF")
-        errors = build_receipt_errors(state) + format_contract_errors(state)
+        errors = (
+            build_receipt_errors(state)
+            + format_contract_errors(state)
+            + main_figure_manifest_errors(state, "CAMERA_READY")
+        )
         if errors:
             raise ValueError("; ".join(errors))
         build_receipt = resolve_artifact(state, state["artifacts"]["build_receipt"])
@@ -2455,7 +2684,7 @@ def command_advance(args: argparse.Namespace) -> int:
                 resolve_artifact(state, state["artifacts"]["experiment_requests"])
             ),
             "submission_dependency_hashes": dependency_hashes(state),
-        } | format_contract_hashes(state)
+        } | format_contract_hashes(state) | main_figure_snapshot_hashes(state)
     if target == "SUBMISSION_QA":
         new_requests = rereview_experiment_ids(state)
         if new_requests:
@@ -2629,6 +2858,9 @@ def command_set_readiness(args: argparse.Namespace) -> int:
         marker_errors = unresolved_marker_errors(source, bibliography)
         if marker_errors:
             raise ValueError("; ".join(marker_errors))
+        figure_errors = main_figure_manifest_errors(state, "CAMERA_READY")
+        if figure_errors:
+            raise ValueError("; ".join(figure_errors))
     elif status == "CONDITIONALLY_READY":
         expected = {
             "Scientific readiness": "PASS",
@@ -2812,6 +3044,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--dependency-manifest", type=Path)
     init.add_argument("--venue-profile", type=Path)
     init.add_argument("--format-audit", type=Path)
+    init.add_argument("--main-figure-manifest", type=Path)
     init.add_argument("--build-command")
     init.set_defaults(func=command_init)
 
