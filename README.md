@@ -4,6 +4,8 @@ A Codex skill that turns a substantially fixed research project and completed
 experiment package into a submission-ready manuscript through explicit story
 approval, controlled drafting, independent review, revision, exact-candidate
 re-review, and read-only venue/package QA.
+The venue/package handoff can bind a sourced conference profile and the compile
+skill's machine-readable format audit to every frozen review candidate.
 
 ## Recommended installation
 

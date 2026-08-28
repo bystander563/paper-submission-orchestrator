@@ -202,7 +202,10 @@ revision ticket is pending or lacks verification.
 ```text
 Load $paper-compile-layout-qa. Audit the exact submission candidate [source
 revision and PDF] against the current official [venue/year/track/mode]
-rules/template. Compile from the repository-native root, verify source/PDF
+rules/template. Consume the workflow-mapped [venue-profile.json], verify its
+official-source provenance and template hashes, then regenerate the mapped
+[format-audit.json] with `conference_format_audit.py --strict` for this exact
+source/PDF. Compile from the repository-native root, verify source/PDF
 synchronization, page limits, anonymity, fonts, figures/tables, citations and
 bibliography, cross-references, build logs, rendered-page readability,
 ethics/limitations, data/code statements, and all author-supplied metadata
@@ -211,7 +214,8 @@ Run the paper orchestrator's `scripts/tex_table_audit.py [main.tex] --strict
 --output [workflow-mapped tex_table_audit.json]` on the real source and run
 `scripts/pdf_font_audit.py [final.pdf] --output [workflow-mapped
 pdf_font_audit.json]`. Both commands must return PASS. Verify their findings
-against the rendered PDF. Check that one-column tables align
+against the rendered PDF. The conference format audit must also return PASS
+and bind the exact profile/source/PDF hashes. Check that one-column tables align
 to column width, two-column tables align to text width, tables use a
 venue-compatible three-line/booktabs structure without vertical rules, and
 table/figure fonts remain consistent and readable without `tiny` text. For each
@@ -236,7 +240,8 @@ if any protected artifact must change, return `REOPEN_REVISION_REQUIRED`. Do not
 reuse the old re-review signoff. Return SUBMISSION_READY,
 CONDITIONALLY_READY, or NOT_READY with the three independent readiness verdicts.
 For every status, record exact source/bibliography/PDF hashes, build and render
-evidence, blockers, residual risks, and a concrete next action. Use explicit
+evidence, exact venue-profile/format-audit hashes when enabled, blockers,
+residual risks, and a concrete next action. Use explicit
 PASS/FAIL for each readiness dimension; only SUBMISSION_READY may have all
 three PASS.
 Use CONDITIONALLY_READY only for scientific PASS, manuscript PASS, and package

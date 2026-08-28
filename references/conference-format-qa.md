@@ -3,6 +3,12 @@
 The current official author kit and venue instructions control. These defaults
 apply when the kit does not specify a different convention.
 
+For new workflows, create the sourced `venue-profile.json` with
+`$paper-compile-layout-qa` and run its `conference_format_audit.py` after each
+candidate build. The orchestrator freezes the resulting `format-audit.json` at
+review and re-review gates. This table/font contract adds deeper semantic and
+visual checks; it does not duplicate or override the venue profile.
+
 ## Text and fonts
 
 - Preserve the official class/style file, page geometry, columns, base font,

@@ -14,10 +14,12 @@ $codexRoot = if ($env:CODEX_HOME) {
   Join-Path ([Environment]::GetFolderPath("UserProfile")) ".codex"
 }
 $orchestratorSkill = Join-Path $codexRoot "skills\paper-submission-orchestrator"
+$compileSkill = Join-Path $codexRoot "skills\paper-compile-layout-qa"
 $workflowCtl = Join-Path $orchestratorSkill "scripts\workflow_ctl.py"
 $tableAudit = Join-Path $orchestratorSkill "scripts\tex_table_audit.py"
 $fontAudit = Join-Path $orchestratorSkill "scripts\pdf_font_audit.py"
 $smokeTest = Join-Path $orchestratorSkill "scripts\smoke_test.py"
+$formatAudit = Join-Path $compileSkill "scripts\conference_format_audit.py"
 ```
 
 ## 1. Initialize
@@ -35,12 +37,22 @@ python $workflowCtl init `
   --bibliography docs/paper/references.bib `
   --pdf output/pdf/local_build/main.pdf `
   --dependency-manifest output/pdf/local_build/main.mk `
+  --venue-profile docs/paper/venue-profile.json `
+  --format-audit .paper-workflow/format-audit.json `
   --build-command "powershell -File scripts/build_paper_local.ps1 -MainTex docs/paper/main.tex -OutDir output/pdf/local_build"
 ```
 
 The command, PDF and manifest must describe one real build. The repository's
 Tectonic helper emits `<stem>.mk`; a latexmk-based project may instead map its
 actual `.fls` recorder.
+
+Create `docs/paper/venue-profile.json` first with
+`$paper-compile-layout-qa` from current official author instructions and the
+exact official kit. The compile skill ships
+`assets/venue-profile.template.json`. `--venue-profile` enables the enforced
+handoff; `--format-audit` maps the JSON produced after the build. Both options
+may be omitted only for a legacy compatibility workflow, which must not claim
+machine-enforced venue-profile compliance.
 
 This creates `.paper-workflow/state.json`, ledgers, approval packets, and a
 review directory. It refuses to overwrite an existing state file. Existing
@@ -116,7 +128,18 @@ python $tableAudit `
   docs/paper/main.tex --strict --output .paper-workflow/tex_table_audit.json
 python $fontAudit `
   output/pdf/local_build/main.pdf --output .paper-workflow/pdf_font_audit.json
+python $formatAudit `
+  --profile docs/paper/venue-profile.json --project-root . `
+  --tex docs/paper/main.tex --pdf output/pdf/local_build/main.pdf `
+  --strict --output .paper-workflow/format-audit.json
 ```
+
+The venue audit must declare `PASS` and bind the exact profile, main source,
+and PDF hashes. It checks pinned kit files, source mode signatures, page size,
+mechanically knowable page limits, PDF metadata, embedded fonts, and Type 3
+fonts. It does not replace manual inspection of reference/appendix boundaries,
+figures, tables, density, or aesthetics. Record the profile and audit SHA-256
+values in `BUILD_RECEIPT.md`.
 
 Strict mode enforces explicit column/text width, a complete booktabs three-line
 hierarchy, no vertical/grid rules, and no `tiny` table font. Record justified
@@ -258,8 +281,9 @@ Every required revision ticket must also be in a closed status with completed
 verification before re-review.
 
 Complete all content and layout work, rebuild, visually inspect, and refresh
-`BUILD_RECEIPT.md` before advancing to `RE_REVIEW`. This freezes the exact final
-source, bibliography, PDF, and receipt. The re-review subagent writes
+`format-audit.json` plus `BUILD_RECEIPT.md` before advancing to `RE_REVIEW`.
+This freezes the exact final source, bibliography, venue profile, format audit,
+PDF, and receipt. The re-review subagent writes
 `reviews/RE_REVIEW.md` containing all frozen SHA-256 values, the verification
 sections, `Scientific signoff: PASS`, and `Experiment requirement: NONE`. A
 file that merely says “fixed” does not unlock `SUBMISSION_QA`.
@@ -273,8 +297,9 @@ SHA-256 values.
 
 ## 7. Final status
 
-`SUBMISSION_QA` is read-only. Re-run the strict TeX table audit and PDF font
-audit on the exact re-reviewed candidate, then rebuild `TABLE_QA.md` for every
+`SUBMISSION_QA` is read-only. Re-run the strict TeX table audit, PDF font audit,
+and conference format audit on the exact re-reviewed candidate, then rebuild
+`TABLE_QA.md` for every
 main and appendix table. Its rows record intended width, semantic rule
 hierarchy, column/row alignment, minimum rendered font, visual evidence, and
 every page changed before the frozen re-review candidate. Record audit commands
@@ -333,6 +358,7 @@ python $smokeTest `
   --project-root . --source docs/paper/main.tex `
   --bibliography docs/paper/references.bib --pdf output/pdf/local_build/main.pdf `
   --main-tex docs/paper/main.tex --build-script scripts/build_paper_local.ps1 `
+  --venue-profile docs/paper/venue-profile.json `
   --venue ACL --year 2026 --track main --mode review
 ```
 

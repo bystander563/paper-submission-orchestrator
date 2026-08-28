@@ -172,6 +172,130 @@ class WorkflowCtlTests(unittest.TestCase):
             check=False,
         )
 
+    def test_enabled_venue_format_contract_is_bound_and_frozen(self) -> None:
+        root = Path(self.temporary.name) / "format-project"
+        (root / "paper").mkdir(parents=True)
+        source = root / "paper" / "main.md"
+        bibliography = root / "paper" / "refs.bib"
+        pdf = root / "paper" / "main.pdf"
+        profile_path = root / "paper" / "venue-profile.json"
+        source.write_text("# Paper\n\nVerified draft.\n", encoding="utf-8")
+        bibliography.write_text("% bibliography\n", encoding="utf-8")
+        write_minimal_pdf(pdf, "format candidate")
+        profile = {
+            "profile_version": 1,
+            "venue": "ACL",
+            "year": 2026,
+            "track": "main",
+            "mode": "review",
+            "verified_at": "2026-08-28",
+            "official_sources": [
+                {
+                    "title": "Official guide",
+                    "url": "https://example.org/official",
+                    "accessed": "2026-08-28",
+                    "supports": ["template", "page_policy", "mode_rules", "pdf"],
+                }
+            ],
+        }
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+        initialized = self.run_cli(
+            "init",
+            "--project-root",
+            str(root),
+            "--venue",
+            "ACL",
+            "--year",
+            "2026",
+            "--track",
+            "main",
+            "--mode",
+            "review",
+            "--source",
+            "paper/main.md",
+            "--bibliography",
+            "paper/refs.bib",
+            "--pdf",
+            "paper/main.pdf",
+            "--venue-profile",
+            "paper/venue-profile.json",
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        state_dir = root / ".paper-workflow"
+        (state_dir / "STORY_APPROVAL_PACKET.md").write_text(
+            completed_story(), encoding="utf-8"
+        )
+        self.assertEqual(
+            self.run_cli("submit-story", "--state", str(state_dir)).returncode, 0
+        )
+        self.assertEqual(
+            self.run_cli(
+                "approve-story",
+                "--state",
+                str(state_dir),
+                "--by",
+                "USER",
+                "--evidence",
+                "通过",
+            ).returncode,
+            0,
+        )
+        for stage in ("DRAFTING", "ASSEMBLING"):
+            advanced = self.run_cli("advance", "--state", str(state_dir), "--to", stage)
+            self.assertEqual(advanced.returncode, 0, advanced.stderr)
+
+        audit_path = state_dir / "format-audit.json"
+        audit = {
+            "schema_version": 1,
+            "status": "PASS",
+            "profile": {
+                "sha256": file_sha256(profile_path),
+                "venue": "ACL",
+                "year": 2026,
+                "track": "main",
+                "mode": "review",
+            },
+            "tex": {"main_sha256": file_sha256(source)},
+            "pdf": {"sha256": file_sha256(pdf)},
+            "findings": [],
+        }
+        audit_path.write_text(json.dumps(audit), encoding="utf-8")
+        fingerprint_result = self.run_cli("fingerprint", "--state", str(state_dir))
+        self.assertEqual(fingerprint_result.returncode, 0, fingerprint_result.stderr)
+        fingerprint = json.loads(fingerprint_result.stdout)
+        (state_dir / "BUILD_RECEIPT.md").write_text(
+            "# Build Receipt\n\n"
+            "- Status: PASS\n"
+            "- Command: test-build\n"
+            f"- Source SHA-256: {file_sha256(source)}\n"
+            f"- Bibliography SHA-256: {file_sha256(bibliography)}\n"
+            f"- Dependency bundle SHA-256: {fingerprint['dependency_bundle_sha256']}\n"
+            f"- Venue profile SHA-256: {file_sha256(profile_path)}\n"
+            f"- Format audit SHA-256: {file_sha256(audit_path)}\n"
+            f"- Output PDF SHA-256: {file_sha256(pdf)}\n"
+            "- Page count: 1\n"
+            "- Undefined references/citations: 0\n"
+            "- Missing files: 0\n"
+            "- Overfull boxes: 0\n"
+            "- Rendered inspection: PASS; pages=ALL; evidence=format fixture inspected\n",
+            encoding="utf-8",
+        )
+        reviewable = self.run_cli(
+            "advance", "--state", str(state_dir), "--to", "REVIEWABLE"
+        )
+        self.assertEqual(reviewable.returncode, 0, reviewable.stderr)
+        state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(state["format_contract"]["enabled"])
+
+        (state_dir / "REVIEW_PANEL.md").write_text(completed_panel(), encoding="utf-8")
+        profile["track"] = "short"
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+        blocked = self.run_cli(
+            "advance", "--state", str(state_dir), "--to", "REVIEWING"
+        )
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("venue profile", blocked.stderr.lower())
+
     def submit_and_approve_story(self) -> None:
         packet = self.state_dir / "STORY_APPROVAL_PACKET.md"
         packet.write_text(completed_story(), encoding="utf-8")

@@ -11,12 +11,20 @@ bibliography, figures/tables, build instructions, target venue, and current
 rendered PDF. Record missing inputs and distinguish user-supplied metadata from
 scientific gaps.
 
+For a LaTeX conference paper, create or map `venue-profile.json` using current
+official author instructions and the exact official kit. Record venue, year,
+track, mode, page-limit semantics, template files/hashes, anonymity, PDF
+requirements, required sections/checklists, and official source URLs. Do not
+derive a new-year profile from conference-family defaults alone.
+
 Gate `G0 INPUT_READY`:
 
 - active manuscript and evidence sources are identified;
 - target venue and paper type are known or explicitly unresolved;
 - exposed, exploratory, negative, and non-comparable evidence is labeled;
 - no ambiguity exists about which draft is canonical.
+- venue/page-budget assumptions have a sourced profile or are explicitly
+  unresolved and blocked from compliance claims.
 
 ## Stage 1: WAITING_FOR_STORY_APPROVAL -> STORY_LOCKED
 
@@ -107,6 +115,12 @@ diagnosing, make the smallest owning-layer fix, and verify every changed page.
 Current official author instructions or the official local kit control format;
 project checklists are useful but cannot override them.
 
+When the controller was initialized with `--venue-profile`, run the compile
+skill's `conference_format_audit.py` on the built PDF and write the mapped
+`format-audit.json`. The audit must bind the exact profile, canonical source,
+and rendered PDF. Record both hashes in `BUILD_RECEIPT.md`. A source-only,
+stale, failed, or warning-only audit does not satisfy the enforced handoff.
+
 Gate `G3 REVIEWABLE_ARTIFACT`:
 
 - the source builds successfully;
@@ -117,6 +131,8 @@ Gate `G3 REVIEWABLE_ARTIFACT`:
 - source and PDF correspond to the same recorded build;
 - the PDF is readable enough for substantive review;
 - page count and anonymization state are known.
+- when enabled, the venue profile and format audit pass and are bound to the
+  exact reviewable source/PDF.
 
 Run an initial table/font preflight here so reviewers do not receive a broken
 or unreadable artifact. This is not the final `TABLE_QA.md` sign-off: later
@@ -303,6 +319,9 @@ The exact final candidate must receive a `$paper-compile-layout-qa` final gate.
 A successful TeX exit is not sufficient: compile logs, page count, fonts,
 figures/tables, column/page layout, and the rendered PDF must all be checked
 against the current conference requirements.
+If the venue-format contract is enabled, rerun its strict audit after the last
+revision and before re-review; the frozen profile/audit hashes must remain
+unchanged through read-only `SUBMISSION_QA`.
 
 Before rendering, run `scripts/tex_table_audit.py` on the real LaTeX source.
 Treat it as a structural preflight, not a substitute for PDF inspection. Follow

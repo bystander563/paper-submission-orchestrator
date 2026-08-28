@@ -327,6 +327,8 @@ both ledgers are frozen with the final candidate.
 - Bibliography SHA-256:
 - Dependency manifest SHA-256:
 - Dependency bundle SHA-256:
+- Venue profile SHA-256:
+- Format audit SHA-256:
 - Output PDF SHA-256:
 - Page count:
 - Undefined references/citations:
@@ -339,6 +341,9 @@ Refresh it after every source, bibliography, or layout change and before
 entering re-review. Generate the dependency bundle with `workflow_ctl.py
 fingerprint`; it includes discovered local TeX inputs, bibliography files,
 figures, and local class/style files.
+When the controller's venue-format contract is enabled, the two additional
+hashes are mandatory. The mapped audit must declare `PASS`, bind the exact
+venue-profile SHA-256, and bind the exact canonical-source and PDF SHA-256.
 `Status: PASS` requires a positive integer page count that matches the PDF,
 zero unresolved references/citations, zero missing files, and
 `Rendered inspection: PASS; pages=ALL|<pages>; evidence=<completed evidence>`.
@@ -374,6 +379,8 @@ Lead with one status and three independent verdicts:
 - Exact source revision:
 - Exact bibliography path/hash:
 - Exact PDF path/hash:
+- Venue profile path/hash:
+- Format audit path/hash:
 - Build command/result:
 - Final rendered-PDF inspection evidence:
 - Remaining P0/P1 blockers:
@@ -384,6 +391,29 @@ Lead with one status and three independent verdicts:
 
 Scientific sign-off must not be used as a substitute for author metadata,
 ethics, venue-template, deadline, or whole-PDF verification.
+When venue-format enforcement is enabled, the readiness report must bind the
+exact profile and audit artifacts. Their hashes are frozen with terminal
+sign-off.
+
+## Venue profile and format audit
+
+`venue-profile.json` is the project-level conference contract produced from
+current official instructions. It records exact venue/year/track/mode,
+official sources and supported rules, template files/hashes, page semantics,
+PDF requirements, anonymity, required sections, and venue-checker evidence.
+
+`format-audit.json` is produced by `$paper-compile-layout-qa`. It contains:
+
+- `status: PASS | PASS_WITH_WARNINGS | FAIL`;
+- exact profile path/SHA-256 and venue identity;
+- canonical main-source path/SHA-256 and discovered TeX inputs;
+- official template file existence and actual hashes;
+- exact PDF path/SHA-256, page information, and font findings;
+- structured findings with severity, code, message, and evidence.
+
+The orchestrator accepts only `PASS` at enforced workflow gates. Visual QA and
+semantic page-boundary evidence remain in the build receipt; audit JSON is not
+a substitute for rendering.
 Every terminal status requires every listed field, including exact hashes and
 completed evidence/blocker/risk/action lines. `SUBMISSION_READY` requires all
 three verdicts to be `PASS`; `CONDITIONALLY_READY` and `NOT_READY` require at

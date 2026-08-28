@@ -325,6 +325,8 @@ READINESS_TEMPLATE = """# Submission Readiness
 - Exact source revision:
 - Exact bibliography path/hash:
 - Exact PDF path/hash:
+- Venue profile path/hash:
+- Format audit path/hash:
 - Build command/result:
 - Final rendered-PDF inspection evidence:
 - Remaining P0/P1 blockers:
@@ -357,6 +359,8 @@ BUILD_RECEIPT_TEMPLATE = """# Build Receipt
 - Bibliography SHA-256:
 - Dependency manifest SHA-256:
 - Dependency bundle SHA-256:
+- Venue profile SHA-256:
+- Format audit SHA-256:
 - Output PDF SHA-256:
 - Page count:
 - Undefined references/citations:
@@ -376,6 +380,118 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def format_contract_enabled(state: dict[str, Any]) -> bool:
+    return bool(state.get("format_contract", {}).get("enabled"))
+
+
+def load_json_object(path: Path, label: str) -> tuple[dict[str, Any] | None, list[str]]:
+    if not path.is_file():
+        return None, [f"{label} is missing: {path}"]
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, [f"{label} is not valid JSON: {exc}"]
+    if not isinstance(value, dict):
+        return None, [f"{label} root must be a JSON object"]
+    return value, []
+
+
+def format_contract_hashes(state: dict[str, Any]) -> dict[str, str]:
+    if not format_contract_enabled(state):
+        return {}
+    result: dict[str, str] = {}
+    for artifact_key, snapshot_key in (
+        ("venue_profile", "venue_profile_sha256"),
+        ("format_audit", "format_audit_sha256"),
+    ):
+        value = state.get("artifacts", {}).get(artifact_key, "")
+        artifact = resolve_artifact(state, value) if value else None
+        if artifact is not None and artifact.is_file():
+            result[snapshot_key] = sha256(artifact)
+    return result
+
+
+def format_contract_errors(state: dict[str, Any]) -> list[str]:
+    if not format_contract_enabled(state):
+        return []
+    artifacts = state.get("artifacts", {})
+    profile_value = artifacts.get("venue_profile", "")
+    audit_value = artifacts.get("format_audit", "")
+    if not profile_value or not audit_value:
+        return ["enabled venue-format contract requires venue_profile and format_audit mappings"]
+    profile_path = resolve_artifact(state, profile_value)
+    audit_path = resolve_artifact(state, audit_value)
+    profile, errors = load_json_object(profile_path, "venue profile")
+    audit, audit_errors = load_json_object(audit_path, "conference format audit")
+    errors.extend(audit_errors)
+    if profile is None or audit is None:
+        return errors
+
+    serialized = json.dumps(profile, ensure_ascii=False)
+    if "REPLACE_WITH" in serialized or "YYYY-MM-DD" in serialized:
+        errors.append("venue profile still contains template placeholders")
+    venue = state.get("venue", {})
+    identity_checks = (
+        ("venue", profile.get("venue"), venue.get("name")),
+        ("year", profile.get("year"), venue.get("year")),
+        ("track", profile.get("track"), venue.get("track")),
+        ("mode", profile.get("mode"), venue.get("mode")),
+    )
+    for label, actual, expected in identity_checks:
+        if str(actual).strip().casefold() != str(expected).strip().casefold():
+            errors.append(
+                f"venue profile {label} does not match workflow state: {actual!r} != {expected!r}"
+            )
+    sources = profile.get("official_sources")
+    if not isinstance(sources, list) or not sources:
+        errors.append("venue profile has no official_sources evidence")
+    if audit.get("status") != "PASS":
+        errors.append("conference format audit must declare status PASS")
+    audit_profile = audit.get("profile") if isinstance(audit.get("profile"), dict) else {}
+    if str(audit_profile.get("sha256", "")).lower() != sha256(profile_path).lower():
+        errors.append("conference format audit does not bind the exact venue profile SHA-256")
+    for label, audit_value_hash, artifact_key in (
+        (
+            "canonical source",
+            (audit.get("tex") or {}).get("main_sha256")
+            if isinstance(audit.get("tex"), dict)
+            else None,
+            "canonical_source",
+        ),
+        (
+            "rendered PDF",
+            (audit.get("pdf") or {}).get("sha256")
+            if isinstance(audit.get("pdf"), dict)
+            else None,
+            "rendered_pdf",
+        ),
+    ):
+        artifact = resolve_artifact(state, artifacts.get(artifact_key, ""))
+        if not artifact.is_file():
+            errors.append(f"venue-format contract {label} is missing: {artifact}")
+        elif str(audit_value_hash or "").lower() != sha256(artifact).lower():
+            errors.append(f"conference format audit does not bind the exact {label} SHA-256")
+    return errors
+
+
+def format_snapshot_errors(
+    state: dict[str, Any], snapshot: dict[str, Any], label: str
+) -> list[str]:
+    if not format_contract_enabled(state):
+        return []
+    errors: list[str] = []
+    for artifact_key, snapshot_key, artifact_label in (
+        ("venue_profile", "venue_profile_sha256", "venue profile"),
+        ("format_audit", "format_audit_sha256", "conference format audit"),
+    ):
+        artifact = resolve_artifact(state, state.get("artifacts", {}).get(artifact_key, ""))
+        if not artifact.is_file():
+            errors.append(f"{label} {artifact_label} is missing: {artifact}")
+        elif sha256(artifact) != snapshot.get(snapshot_key):
+            errors.append(f"{artifact_label} changed after the {label} snapshot was frozen")
+    return errors
 
 
 def pdf_page_count(path: Path) -> int:
@@ -1083,7 +1199,7 @@ def freeze_review_snapshot(
         "build_receipt_sha256": sha256(build_receipt),
         "submission_dependency_hashes": dependency_hashes(state),
         "panel_sha256": sha256(panel),
-    }
+    } | format_contract_hashes(state)
 
 
 def validate_human_approver(value: str) -> str:
@@ -1147,6 +1263,8 @@ def pending_review_panel_errors(state: dict[str, Any]) -> list[str]:
             errors.append(f"{label} changed after review-panel submission for approval")
     errors.extend(dependency_snapshot_errors(state, pending, "pending review-panel"))
     errors.extend(build_receipt_errors(state))
+    errors.extend(format_snapshot_errors(state, pending, "pending review-panel"))
+    errors.extend(format_contract_errors(state))
     return errors
 
 
@@ -1169,6 +1287,7 @@ def review_snapshot_errors(state: dict[str, Any]) -> list[str]:
     if not receipt.is_file() or sha256(receipt) != snapshot.get("build_receipt_sha256"):
         errors.append("build receipt changed after the review snapshot was frozen")
     errors.extend(dependency_snapshot_errors(state, snapshot, "review"))
+    errors.extend(format_snapshot_errors(state, snapshot, "review"))
     return errors
 
 
@@ -1225,6 +1344,7 @@ def rereview_snapshot_errors(state: dict[str, Any]) -> list[str]:
         if not artifact.is_file() or sha256(artifact) != snapshot.get(snapshot_key):
             errors.append(f"{label} changed after the re-review snapshot was frozen")
     errors.extend(dependency_snapshot_errors(state, snapshot, "re-review"))
+    errors.extend(format_snapshot_errors(state, snapshot, "re-review"))
     return errors
 
 
@@ -1597,6 +1717,14 @@ def build_receipt_errors(state: dict[str, Any]) -> list[str]:
             errors.append("BUILD_RECEIPT.md does not identify the exact dependency manifest SHA-256")
     if exact_pdf_hash_in(text, "Dependency bundle SHA-256") != dependency_bundle_sha256(state):
         errors.append("BUILD_RECEIPT.md does not identify the exact dependency bundle SHA-256")
+    if format_contract_enabled(state):
+        for label, artifact_key in (
+            ("Venue profile SHA-256", "venue_profile"),
+            ("Format audit SHA-256", "format_audit"),
+        ):
+            artifact = resolve_artifact(state, state["artifacts"].get(artifact_key, ""))
+            if not artifact.is_file() or exact_pdf_hash_in(text, label) != sha256(artifact):
+                errors.append(f"BUILD_RECEIPT.md does not identify the exact {label}")
     for label in ("Command",):
         values = bullet_field_values(text, label)
         if len(values) != 1 or not values[0] or UNRESOLVED_RE.search(values[0]):
@@ -1941,6 +2069,8 @@ def full_validation(state: dict[str, Any], codex_home: Path | None) -> dict[str,
         for artifact_key, readiness_key, label in (
             ("tex_table_audit", "tex_table_audit_sha256", "TeX table audit JSON"),
             ("pdf_font_audit", "pdf_font_audit_sha256", "PDF font audit JSON"),
+            ("venue_profile", "venue_profile_sha256", "venue profile JSON"),
+            ("format_audit", "format_audit_sha256", "conference format audit JSON"),
         ):
             expected = readiness.get(readiness_key)
             artifact = resolve_artifact(state, state["artifacts"].get(artifact_key, ""))
@@ -1978,6 +2108,13 @@ def command_init(args: argparse.Namespace) -> int:
     source = resolve_input_path(args.source, root)
     bibliography = resolve_input_path(args.bibliography, root)
     pdf = resolve_input_path(args.pdf, root) if args.pdf else None
+    venue_profile = (
+        resolve_input_path(args.venue_profile, root) if args.venue_profile else None
+    )
+    if args.format_audit and venue_profile is None:
+        raise ValueError("--format-audit requires --venue-profile")
+    if venue_profile is not None and not venue_profile.is_file():
+        raise FileNotFoundError(f"venue profile not found: {venue_profile}")
     for label, artifact in (("source", source), ("bibliography", bibliography)):
         if not artifact.is_file():
             raise FileNotFoundError(f"{label} not found: {artifact}")
@@ -2005,6 +2142,14 @@ def command_init(args: argparse.Namespace) -> int:
         "table_qa": portable_path(workflow_dir / "TABLE_QA.md", root),
         "tex_table_audit": portable_path(workflow_dir / "tex_table_audit.json", root),
         "pdf_font_audit": portable_path(workflow_dir / "pdf_font_audit.json", root),
+        "venue_profile": portable_path(venue_profile, root) if venue_profile else "",
+        "format_audit": (
+            portable_path(resolve_input_path(args.format_audit, root), root)
+            if args.format_audit
+            else portable_path(workflow_dir / "format-audit.json", root)
+            if venue_profile
+            else ""
+        ),
         "submission_readiness": portable_path(workflow_dir / "SUBMISSION_READINESS.md", root),
         "reviews_dir": portable_path(workflow_dir / "reviews", root),
     }
@@ -2021,6 +2166,11 @@ def command_init(args: argparse.Namespace) -> int:
             "mode": args.mode,
         },
         "build_command": args.build_command or "",
+        "format_contract": {
+            "enabled": venue_profile is not None,
+            "producer": "paper-compile-layout-qa",
+            "contract_version": 1,
+        },
         "artifacts": artifacts,
         "approvals": {
             "story": {"status": "PENDING"},
@@ -2125,6 +2275,7 @@ def command_invalidate_story(args: argparse.Namespace) -> int:
         "SUBMISSION_READINESS.md",
         "tex_table_audit.json",
         "pdf_font_audit.json",
+        "format-audit.json",
     ):
         artifact = workflow_dir / name
         if artifact.is_file():
@@ -2145,7 +2296,7 @@ def command_invalidate_story(args: argparse.Namespace) -> int:
     (workflow_dir / "SUBMISSION_READINESS.md").write_text(
         READINESS_TEMPLATE, encoding="utf-8"
     )
-    for name in ("tex_table_audit.json", "pdf_font_audit.json"):
+    for name in ("tex_table_audit.json", "pdf_font_audit.json", "format-audit.json"):
         active_audit = workflow_dir / name
         if active_audit.is_file():
             active_audit.unlink()
@@ -2201,12 +2352,16 @@ def command_advance(args: argparse.Namespace) -> int:
             artifact = resolve_artifact(state, value) if value else None
             if artifact is None or not artifact.is_file():
                 raise ValueError(f"REVIEWABLE requires existing artifact: {key}")
-        errors = build_receipt_errors(state)
+        errors = build_receipt_errors(state) + format_contract_errors(state)
         if errors:
             raise ValueError("; ".join(errors))
     if target == "WAITING_FOR_REVIEW_PANEL_APPROVAL":
         panel = resolve_artifact(state, state["artifacts"]["review_panel"])
-        errors = review_panel_errors(panel) + build_receipt_errors(state)
+        errors = (
+            review_panel_errors(panel)
+            + build_receipt_errors(state)
+            + format_contract_errors(state)
+        )
         if errors:
             raise ValueError("; ".join(errors))
         if review_panel_type(panel) != "CUSTOM":
@@ -2228,10 +2383,14 @@ def command_advance(args: argparse.Namespace) -> int:
             "proposed_build_receipt_sha256": sha256(build_receipt),
             "submission_dependency_hashes": dependency_hashes(state),
             "submitted_at": utc_now(),
-        }
+        } | format_contract_hashes(state)
     if target == "REVIEWING":
         panel = resolve_artifact(state, state["artifacts"]["review_panel"])
-        errors = review_panel_errors(panel) + build_receipt_errors(state)
+        errors = (
+            review_panel_errors(panel)
+            + build_receipt_errors(state)
+            + format_contract_errors(state)
+        )
         if errors:
             raise ValueError("; ".join(errors))
         if review_panel_type(panel) != "STANDARD_FIVE_ROLE":
@@ -2281,7 +2440,7 @@ def command_advance(args: argparse.Namespace) -> int:
         pdf = resolve_artifact(state, state["artifacts"]["rendered_pdf"])
         if not source.is_file() or not bibliography.is_file() or not pdf.is_file():
             raise ValueError("re-review requires final source, bibliography, and rendered PDF")
-        errors = build_receipt_errors(state)
+        errors = build_receipt_errors(state) + format_contract_errors(state)
         if errors:
             raise ValueError("; ".join(errors))
         build_receipt = resolve_artifact(state, state["artifacts"]["build_receipt"])
@@ -2296,7 +2455,7 @@ def command_advance(args: argparse.Namespace) -> int:
                 resolve_artifact(state, state["artifacts"]["experiment_requests"])
             ),
             "submission_dependency_hashes": dependency_hashes(state),
-        }
+        } | format_contract_hashes(state)
     if target == "SUBMISSION_QA":
         new_requests = rereview_experiment_ids(state)
         if new_requests:
@@ -2419,6 +2578,16 @@ def command_set_readiness(args: argparse.Namespace) -> int:
             raise ValueError(
                 f"submission readiness report does not identify the exact final {artifact_name} SHA-256"
             )
+    if format_contract_enabled(state):
+        for label, artifact_key, artifact_name in (
+            ("Venue profile path/hash", "venue_profile", "venue profile"),
+            ("Format audit path/hash", "format_audit", "conference format audit"),
+        ):
+            artifact = resolve_artifact(state, state["artifacts"].get(artifact_key, ""))
+            if not artifact.is_file() or exact_pdf_hash_in(report_text, label) != sha256(artifact):
+                raise ValueError(
+                    f"submission readiness report does not identify the exact final {artifact_name} SHA-256"
+                )
     evidence_labels = (
         "Build command/result",
         "Final rendered-PDF inspection evidence",
@@ -2500,6 +2669,18 @@ def command_set_readiness(args: argparse.Namespace) -> int:
         )
         if resolve_artifact(state, state["artifacts"]["pdf_font_audit"]).is_file()
         else None,
+        "venue_profile_sha256": sha256(
+            resolve_artifact(state, state["artifacts"].get("venue_profile", ""))
+        )
+        if format_contract_enabled(state)
+        and resolve_artifact(state, state["artifacts"].get("venue_profile", "")).is_file()
+        else None,
+        "format_audit_sha256": sha256(
+            resolve_artifact(state, state["artifacts"].get("format_audit", ""))
+        )
+        if format_contract_enabled(state)
+        and resolve_artifact(state, state["artifacts"].get("format_audit", "")).is_file()
+        else None,
         "canonical_source_sha256": sha256(source),
         "bibliography_sha256": sha256(bibliography),
         "rendered_pdf_sha256": sha256(pdf) if pdf.is_file() else None,
@@ -2572,7 +2753,7 @@ def command_fingerprint(args: argparse.Namespace) -> int:
 
 def command_check_build(args: argparse.Namespace) -> int:
     _, state = load_state(args.state)
-    errors = build_receipt_errors(state)
+    errors = build_receipt_errors(state) + format_contract_errors(state)
     payload = {"ok": not errors, "errors": errors}
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if not errors else 1
@@ -2588,6 +2769,7 @@ def command_status(args: argparse.Namespace) -> int:
         "review_panel_approval": state.get("approvals", {}).get("review_panel"),
         "review_snapshot": state.get("review_snapshot"),
         "rereview_snapshot": state.get("rereview_snapshot"),
+        "format_contract": state.get("format_contract"),
         "readiness": state.get("readiness"),
         "allowed_next_actions": allowed_next_actions(state),
     }
@@ -2628,6 +2810,8 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--bibliography", type=Path, required=True)
     init.add_argument("--pdf", type=Path)
     init.add_argument("--dependency-manifest", type=Path)
+    init.add_argument("--venue-profile", type=Path)
+    init.add_argument("--format-audit", type=Path)
     init.add_argument("--build-command")
     init.set_defaults(func=command_init)
 

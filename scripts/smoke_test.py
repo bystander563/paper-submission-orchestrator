@@ -60,6 +60,7 @@ def main() -> int:
     parser.add_argument("--pdf", type=Path, required=True)
     parser.add_argument("--main-tex", type=Path, required=True)
     parser.add_argument("--build-script", type=Path, required=True)
+    parser.add_argument("--venue-profile", type=Path, required=True)
     parser.add_argument("--venue", required=True)
     parser.add_argument("--year", required=True)
     parser.add_argument("--track", required=True)
@@ -80,6 +81,7 @@ def main() -> int:
     pdf = require_file(project_path(args.pdf), "PDF")
     main_tex = require_file(project_path(args.main_tex), "main TeX") if args.main_tex else None
     build_script = require_file(project_path(args.build_script), "build script") if args.build_script else None
+    venue_profile = require_file(project_path(args.venue_profile), "venue profile")
     if source != main_tex:
         parser.error("real LaTeX smoke requires --source and --main-tex to identify the same canonical file")
     diff_script = (
@@ -90,6 +92,8 @@ def main() -> int:
         / "pdf_render_diff.py"
     )
     require_file(diff_script, "paper-compile-layout-qa render-diff script")
+    format_audit_script = diff_script.with_name("conference_format_audit.py")
+    require_file(format_audit_script, "paper-compile-layout-qa conference-format audit script")
 
     results: dict[str, object] = {}
     build_pdf_exists = False
@@ -126,6 +130,10 @@ def main() -> int:
                 str(comparison_pdf),
                 "--dependency-manifest",
                 str(dependency_manifest),
+                "--venue-profile",
+                str(venue_profile),
+                "--format-audit",
+                str(temp / "state" / "format-audit.json"),
                 "--build-command",
                 build_command,
             ]
@@ -243,6 +251,29 @@ def main() -> int:
                 "stderr": table_audit.stderr.strip(),
             }
 
+        format_audit = run(
+            [
+                sys.executable,
+                str(format_audit_script),
+                "--profile",
+                str(venue_profile),
+                "--project-root",
+                str(root),
+                "--tex",
+                str(main_tex),
+                "--pdf",
+                str(comparison_pdf),
+                "--strict",
+                "--output",
+                str(temp / "state" / "format-audit.json"),
+            ]
+        )
+        results["conference_format_audit"] = {
+            "returncode": format_audit.returncode,
+            "stdout": format_audit.stdout.strip(),
+            "stderr": format_audit.stderr.strip(),
+        }
+
         build_evidence = None
         rendered_audits_pass = (
             diff.returncode == 0
@@ -250,6 +281,7 @@ def main() -> int:
             and font_audit.returncode == 0
             and table_audit is not None
             and table_audit.returncode == 0
+            and format_audit.returncode == 0
         )
         if build.returncode == 0 and build_pdf_exists and manifest_exists and rendered_audits_pass:
             fingerprint = run(
@@ -282,6 +314,8 @@ def main() -> int:
                 f"- Bibliography SHA-256: {file_sha256(bibliography)}\n"
                 f"- Dependency manifest SHA-256: {file_sha256(dependency_manifest)}\n"
                 f"- Dependency bundle SHA-256: {fingerprint_payload['dependency_bundle_sha256']}\n"
+                f"- Venue profile SHA-256: {file_sha256(venue_profile)}\n"
+                f"- Format audit SHA-256: {file_sha256(temp / 'state' / 'format-audit.json')}\n"
                 f"- Output PDF SHA-256: {file_sha256(comparison_pdf)}\n"
                 f"- Page count: {pdf_page_count(comparison_pdf)}\n"
                 f"- Undefined references/citations: {undefined_count}\n"
@@ -317,8 +351,9 @@ def main() -> int:
     diff_ok = diff.returncode == 0 and "changed_pages=none" in diff.stdout
     font_ok = font_audit.returncode == 0
     table_ok = table_audit is None or table_audit.returncode == 0
+    format_ok = format_audit.returncode == 0
     build_evidence_ok = build_evidence is not None and build_evidence.returncode == 0
-    return 0 if preflight_ok and build_ok and diff_ok and font_ok and table_ok and build_evidence_ok else 1
+    return 0 if preflight_ok and build_ok and diff_ok and font_ok and table_ok and format_ok and build_evidence_ok else 1
 
 
 if __name__ == "__main__":

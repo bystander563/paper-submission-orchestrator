@@ -49,6 +49,16 @@ Runtime skill dependencies are `$academic-paper-reviewer` and
 `$paper-compile-layout-qa`. The `paper-submission-suite` plugin installs all
 three together. If either dependency is absent, stop before its stage and
 report the missing skill instead of silently substituting a weaker workflow.
+`$toppdf` is an optional prose/visual-polish collaborator; it never replaces
+the compile skill's official author-kit and exact-build contract.
+
+For new LaTeX workflows, initialize the controller with a sourced
+`venue-profile.json`. `$paper-compile-layout-qa` consumes that profile and
+produces `format-audit.json`. Once this venue-format contract is enabled, the
+controller binds both files to the canonical source, PDF, build receipt, review
+snapshot, re-review snapshot, and final readiness record. Legacy workflows
+without the optional mapping remain compatible but cannot claim the same
+machine-enforced venue-profile handoff.
 
 ## Authority and invariants
 
@@ -101,6 +111,10 @@ Before writing, identify the current equivalents of:
 4. active manuscript source, bibliography, figures/tables, build path, and
    latest rendered PDF;
 5. existing review reports, decision log, and unresolved placeholders.
+
+For venue-aware work, also identify or create the exact-year/track/mode venue
+profile from current official instructions. Resolve it before using page-budget
+assumptions in the Story Approval Packet.
 
 Also build a small terminology ledger for the paper's central scientific terms:
 term, authoritative source, accepted meaning, and intended manuscript usage.
@@ -276,6 +290,10 @@ build and rendered inspection. Use `workflow_ctl.py fingerprint` to generate
 the dependency-bundle hash. The final
 readiness report repeats those hashes and audit evidence. Any post-re-review
 edit invalidates scientific signoff.
+When the venue-format contract is enabled, the receipt and readiness report
+also bind the exact `venue-profile.json` and `format-audit.json` hashes. The
+format audit must declare `PASS` for the same canonical source and PDF; a stale
+or warning-only audit cannot unlock `REVIEWABLE` or `RE_REVIEW`.
 Figure discovery includes `\graphicspath` search directories, not only images
 written relative to the current TeX file.
 Dependency parsing accepts legal whitespace between supported TeX commands and
