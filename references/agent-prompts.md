@@ -43,7 +43,9 @@ explicitly approves the exact packet.
 ```text
 Draft [section or sidecar file] from the frozen [story blueprint], [fact pack],
 [claim-evidence matrix], [terminology ledger], [venue contract], and
-[bibliography]. Use calibrated, direct academic prose and authoritative field
+[bibliography]. When a central method figure is planned, also read the frozen
+[MAIN_FIGURE_CONTRACT.md], vector identity, and caption so prose and notation
+match the approved visual. Use calibrated, direct academic prose and authoritative field
 terminology. Lead with the contribution or finding, use only necessary
 qualifiers, and consolidate broad caveats in the appropriate limitations text.
 Do not invent scientific terms or turn implementation nicknames into field
@@ -55,6 +57,32 @@ assigned file.
 Before writing, verify that the workflow state is STORY_LOCKED and that the
 current Story Approval Packet hash matches the recorded user approval. If not,
 stop without drafting and report WAITING_FOR_STORY_APPROVAL.
+```
+
+## Figure architect
+
+```text
+Load $paper-main-figure. Work only after the workflow state is STORY_LOCKED and
+verify that [Story Approval Packet path/hash] matches the recorded user
+approval. Read [method definition], [fact pack], [claim-evidence matrix],
+[terminology ledger], [venue profile], and [figure role from the approved
+packet]. Create MAIN_FIGURE_CONTRACT.md and FIGURE_FACTS.md, then lock the
+canonical node/edge map before styling. Do not invent modules, arrows, losses,
+metrics, dataset roles, or scientific terminology.
+
+Produce an editable vector master, vector PDF/SVG export, placement-size PNG
+preview, caption, alt text, grayscale and color-vision-deficiency checks, and
+MAIN_FIGURE_QA.md with exact hashes. Use the venue's physical placement width;
+calculate font size at that width. Keep dense UI modules aligned, whitespace
+intentional, and connectors short, neutral, and visually weaker than module
+borders. Ordinary arrows are straight or use at most one right-angle elbow.
+Avoid slash-separated prose unless it is canonical notation or an established
+term.
+
+If the proposed visual changes the thesis, mechanism, contribution hierarchy,
+non-claims, or evidence interpretation, stop with STORY_REAPPROVAL_REQUIRED.
+Otherwise visual iteration does not reopen story approval. Return DRAFT_ONLY,
+PAPER_READY, or CAMERA_READY using the main-figure skill's exact criteria.
 ```
 
 ## Reviewer configuration subagent

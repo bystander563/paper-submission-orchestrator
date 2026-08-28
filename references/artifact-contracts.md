@@ -60,6 +60,52 @@ The approval record is separate from the packet and contains:
 Agents must not infer approval. A material packet edit invalidates the recorded
 approval and returns the workflow to `WAITING_FOR_STORY_APPROVAL`.
 
+## Main Figure Contract
+
+Create this artifact after story approval when the packet plans a central
+method figure. It is downstream of the story packet and never substitutes for
+story approval.
+
+```markdown
+# Main Figure Contract
+
+- Story packet path/SHA-256:
+- Figure role in the paper:
+- Three-second message:
+- Target venue and exact placement width:
+- Editable master path:
+- Vector export path:
+- Preview path:
+
+## Required scientific entities
+
+## Canonical node and edge map
+
+## Training-only and inference-time boundary
+
+## Edge semantics
+
+## Authoritative labels and notation
+
+## Forbidden content and claims
+
+## Final-size typography and palette contract
+
+## Caption and alt text paths
+
+## QA record path
+```
+
+The QA record binds the vector master and export hashes and reports one of
+`DRAFT_ONLY`, `PAPER_READY`, or `CAMERA_READY`. `CAMERA_READY` requires the
+exact manuscript placement size, editable text and shapes, embedded valid
+fonts, no unsupported scientific element, no clipped label, accessible color
+semantics, and a rendered inspection of the export used by the manuscript.
+
+The figure contract becomes stale if the approved story packet changes. A
+post-review change to the vector, caption, or placement is a candidate change:
+rebuild and re-review before final package QA.
+
 ## Reviewer Configuration Card
 
 The card must contain:

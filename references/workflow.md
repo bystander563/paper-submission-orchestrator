@@ -76,6 +76,20 @@ starts a clean active cycle. Historical requests do not leak into the new story.
 
 ## Stage 2: DRAFTING
 
+When the approved Story Approval Packet assigns a central method figure, begin
+Stage 2 by loading `$paper-main-figure`. Create `MAIN_FIGURE_CONTRACT.md` and
+`FIGURE_FACTS.md`, bind both to the approved packet SHA-256, and lock the
+scientific node/edge topology before drafting prose around the figure. Produce
+an editable vector master, caption, venue-sized render, and QA record. The
+figure may compress labels and visual grouping, but it may not change the
+approved thesis, mechanism, contribution order, non-claims, or evidence
+interpretation. If it would, invalidate G1 and return to story approval.
+
+This figure step does not add a routine human gate. Continue through visual
+iteration while the approved story remains unchanged. User confirmation is
+required only when the project explicitly requests a visual approval gate or
+when the proposed figure would materially change the story.
+
 Draft in dependency order:
 
 1. task/data/evaluation and method definitions;
@@ -100,6 +114,8 @@ Gate `G2 COMPLETE_DRAFT`:
 - placeholders are enumerated;
 - every table/figure is cited and has a source;
 - terminology and claim strength are consistent.
+- when a central method figure is planned, its contract cites the approved
+  story hash and its editable master, caption, and placement-size render exist.
 
 ## Stage 3: ASSEMBLING -> REVIEWABLE
 
@@ -305,6 +321,9 @@ Run read-only final checks on the exact re-reviewed candidate package:
 - all numbers, captions, tables, and appendix cross-references;
 - citation-key completeness, reference authenticity, and local citation fit;
 - template, page limits, anonymity, fonts, figures, tables, and accessibility;
+- main-figure placement uses its declared physical width without hidden
+  downscaling; editable/vector text, embedded fonts, grayscale meaning, and
+  caption/source synchronization remain valid;
 - one-column tables aligned to `\columnwidth`, two-column tables aligned to
   `\textwidth`, and documented exceptions rather than accidental natural width;
 - venue-compatible three-line tables (`booktabs` by default), no vertical rules,

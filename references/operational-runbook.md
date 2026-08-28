@@ -15,6 +15,7 @@ $codexRoot = if ($env:CODEX_HOME) {
 }
 $orchestratorSkill = Join-Path $codexRoot "skills\paper-submission-orchestrator"
 $compileSkill = Join-Path $codexRoot "skills\paper-compile-layout-qa"
+$mainFigureSkill = Join-Path $codexRoot "skills\paper-main-figure"
 $workflowCtl = Join-Path $orchestratorSkill "scripts\workflow_ctl.py"
 $tableAudit = Join-Path $orchestratorSkill "scripts\tex_table_audit.py"
 $fontAudit = Join-Path $orchestratorSkill "scripts\pdf_font_audit.py"
@@ -114,6 +115,34 @@ python $workflowCtl invalidate-story `
 The command preserves the old cycle under `.paper-workflow/archive/`, clears
 its active review/request state, resets claim/terminology and QA sidecars, and
 requires submission and explicit approval of the current story packet again.
+
+### Story-bound main figure
+
+If `STORY_APPROVAL_PACKET.md` assigns a central method figure, use
+`$paper-main-figure` immediately after approval and before drafting prose around
+that figure. Create:
+
+```text
+paper_figures/<method>/
+  MAIN_FIGURE_CONTRACT.md
+  FIGURE_FACTS.md
+  main_figure.svg
+  main_figure.pdf
+  main_figure_preview.png
+  main_figure_caption.md
+  MAIN_FIGURE_QA.md
+```
+
+Record the approved story-packet SHA-256, exact venue placement width,
+canonical node/edge map, training/inference boundary, authoritative labels,
+and forbidden claims. Inspect the SVG/PDF at the exact physical width plus a
+thumbnail, grayscale view, and color-vision-deficiency view. The vector master,
+not an image-generated bitmap, is the camera-ready source.
+
+This step does not require a second routine approval. If the figure proposal
+changes the approved scientific story, stop and run `invalidate-story`. If the
+project has separately declared a visual approval gate, preserve versioned
+candidates and wait for that explicit visual decision before integration.
 
 ## 3. Build a reviewable artifact
 

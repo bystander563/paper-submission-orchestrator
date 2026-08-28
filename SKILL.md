@@ -21,7 +21,7 @@ submission package.
 
 The shortest operational flow is:
 
-`evidence intake -> story packet -> USER STORY APPROVAL -> drafting/assembly -> standard five-role panel auto-freeze (custom panel: USER APPROVAL) -> independent review -> triage -> revision and final layout -> re-review exact candidate -> read-only package QA -> readiness decision`
+`evidence intake -> story packet -> USER STORY APPROVAL -> story-bound main figure when planned -> drafting/assembly -> standard five-role panel auto-freeze (custom panel: USER APPROVAL) -> independent review -> triage -> revision and final layout -> re-review exact candidate -> read-only package QA -> readiness decision`
 
 Mandatory human decision points:
 
@@ -40,14 +40,16 @@ Use these files by purpose:
 |---|---|
 | Decide the current stage and gate | [references/workflow.md](references/workflow.md) |
 | Execute or resume the workflow | [references/operational-runbook.md](references/operational-runbook.md) and `scripts/workflow_ctl.py` |
+| Create the story-bound main method figure | `$paper-main-figure` and [references/artifact-contracts.md](references/artifact-contracts.md) |
 | Delegate a bounded role | [references/agent-prompts.md](references/agent-prompts.md) |
 | Create or validate an artifact | [references/artifact-contracts.md](references/artifact-contracts.md) |
 | Audit wording and field terminology | [references/writing-and-terminology.md](references/writing-and-terminology.md) |
 | Audit conference tables, fonts, and rendered layout | [references/conference-format-qa.md](references/conference-format-qa.md) |
 
-Runtime skill dependencies are `$academic-paper-reviewer` and
-`$paper-compile-layout-qa`. The `paper-submission-suite` plugin installs all
-three together. If either dependency is absent, stop before its stage and
+Runtime skill dependencies are `$academic-paper-reviewer`,
+`$paper-compile-layout-qa`, and `$paper-main-figure` when the approved story
+plans a central method figure. The `paper-submission-suite` plugin installs all
+four together. If a required dependency is absent, stop before its stage and
 report the missing skill instead of silently substituting a weaker workflow.
 `$toppdf` is an optional prose/visual-polish collaborator; it never replaces
 the compile skill's official author-kit and exact-build contract.
@@ -67,6 +69,10 @@ machine-enforced venue-profile handoff.
 - The user or PI must explicitly approve the Story Approval Packet before any
   manuscript drafting begins. The integrator cannot self-approve it. Silence,
   timeout, or approval of a different artifact grants no authority.
+- A planned main method figure is created only after story approval. Its
+  contract records the approved packet SHA-256 and may simplify presentation,
+  but may not alter the thesis, mechanism, contribution hierarchy, non-claims,
+  or evidence interpretation. A material change reopens story approval.
 - The scheduler/integrator owns workflow state and the canonical manuscript.
 - The exact standard five-role panel is a frozen default, not a human decision
   gate. A custom role roster or materially altered responsibility must be
@@ -139,6 +145,10 @@ clear input snapshot and output file or report:
 - **Story architect:** proposes the argument chain, contribution hierarchy,
   table/figure plan, and limitations from the ledger. The user/PI approves the
   exact packet; the integrator only records and enforces that decision.
+- **Figure architect:** after story lock, loads `$paper-main-figure`, binds the
+  figure contract to the approved packet hash, verifies the method topology,
+  and produces editable vector source, caption, placement-size render, and QA.
+  It never repairs the story by inventing a module, arrow, loss, or claim.
 - **Writer:** drafts claim-safe prose from the frozen story and evidence.
 - **Review subagents:** must load `$academic-paper-reviewer`. For the first
   serious review, use `full` mode for the frozen five-role panel. The
@@ -165,6 +175,12 @@ decisions, canonical manuscript edits, and final merge operations.
 Run the stages and gates in [references/workflow.md](references/workflow.md):
 
 `INTAKE -> WAITING_FOR_STORY_APPROVAL -> STORY_LOCKED -> DRAFTING -> ASSEMBLING -> REVIEWABLE -> REVIEWING -> TRIAGE -> REVISING -> RE_REVIEW -> SUBMISSION_QA -> SUBMISSION_READY | CONDITIONALLY_READY | NOT_READY`
+
+When the approved packet assigns a central method figure, its contract and
+topology are completed as the first `STORY_LOCKED` action before prose drafting.
+This is an artifact step inside the existing state machine, not a second story
+approval gate. A story-changing figure proposal returns to
+`WAITING_FOR_STORY_APPROVAL`; ordinary visual iteration does not.
 
 Only a `CUSTOM` reviewer configuration inserts
 `REVIEWABLE -> WAITING_FOR_REVIEW_PANEL_APPROVAL -> REVIEWING`. The
@@ -253,6 +269,9 @@ completed, applied, or verified; unresolved requests cannot silently disappear.
   the original wording, narrow the claim and update limitations.
 - Keep prose, tables, captions, appendix, bibliography, and generated LaTeX in
   sync.
+- Keep the main-figure vector, caption, manuscript placement, and rendered PDF
+  synchronized. A post-review figure edit follows the same revision and
+  re-review rules as a prose or table edit.
 - During prose revision, preserve an assertive scientific register: lead with
   the supported finding, state the relevant boundary once, and avoid strings of
   defensive qualifiers that obscure the contribution.

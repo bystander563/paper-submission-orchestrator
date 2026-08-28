@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Submission Orchestrator"
   short_description: "Turn frozen research into a submission-ready paper"
-  default_prompt: "Use $paper-submission-orchestrator to initialize a durable multi-agent paper workflow, prepare a Story Approval Packet, and stop for my approval before drafting. After story approval, auto-freeze the standard five-role review panel and review directly; pause again only for a custom role or responsibility change."
+  default_prompt: "Use $paper-submission-orchestrator to initialize a durable multi-agent paper workflow, prepare a Story Approval Packet, and stop for my approval. After approval, create the story-bound main figure when planned, then draft; auto-freeze the standard five-role review panel and pause again only for a custom role or responsibility change."
